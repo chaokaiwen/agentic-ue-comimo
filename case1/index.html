@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agentic UE-CoMIMO · Cinematic Interactive Scenario</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;color:#eaf1f8;
+  font-family:system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:radial-gradient(1200px 700px at 50% -10%,#16243a,#070a10 70%)}
+#wrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+canvas{background:#0a1018;border-radius:12px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.06);cursor:crosshair}
+#ui{position:absolute;right:12px;top:12px;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;
+    max-width:340px;z-index:5}
+.btn{font-family:inherit;font-weight:600;font-size:12.5px;color:#dfe8f2;
+  background:rgba(22,28,40,.72);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:7px 13px;cursor:pointer;
+  transition:transform .06s,border-color .15s,background .15s}
+.btn:hover{border-color:rgba(127,208,255,.7);background:rgba(30,40,56,.82)}
+.btn:active{transform:translateY(1px)}
+.btn.alt{color:#bfe6ff}.btn.warn{color:#ffb3a3}
+.btn.on{background:rgba(61,220,85,.18);border-color:rgba(61,220,85,.7);color:#bff5c8}
+#seedbox{font-family:inherit;font-weight:600;font-size:12.5px;width:60px;padding:6px 8px;color:#eaf1f8;
+  border:1px solid rgba(255,255,255,.16);border-radius:10px;background:rgba(10,14,20,.7)}
+#hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:5;
+  background:rgba(14,18,26,.8);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);
+  border-radius:999px;padding:8px 18px;font-size:13px;color:#bfe6ff;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+#intro{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:18px;text-align:center;padding:24px;
+  background:radial-gradient(900px 500px at 50% 30%,rgba(20,34,56,.86),rgba(6,9,14,.95))}
+#intro h1{font-size:30px;font-weight:800;letter-spacing:-.01em;line-height:1.18;
+  background:linear-gradient(90deg,#7fd0ff,#2f7fff);-webkit-background-clip:text;background-clip:text;color:transparent}
+#intro p{font-size:15px;color:#c4ccd6;line-height:1.7;max-width:700px}
+#intro p b{color:#eaf1f8}
+#intro .keys{font-size:13px;color:#7fd0ff;line-height:1.9}
+#intro .start{font-size:16px;font-weight:700;padding:12px 30px;color:#05121f;border:0;
+  background:linear-gradient(90deg,#7fd0ff,#2f7fff);border-radius:12px}
+#report{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:15;display:none;
+  gap:10px;align-items:center;background:rgba(16,20,28,.92);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,216,61,.5);border-radius:14px;padding:12px 16px;box-shadow:0 16px 40px rgba(0,0,0,.5)}
+#report span{color:#ffd9a0;font-size:12px;margin-right:4px}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="cv" width="960" height="540"></canvas></div>
+
+<div id="ui">
+  <button class="btn" id="bPause" onclick="G.togglePause()">❚❚ PAUSE</button>
+  <button class="btn alt" id="bSpeed" onclick="G.toggleSpeed()">▶ x1</button>
+  <button class="btn" id="bCapsule" onclick="G.toggleCapsule()">🔋 +CAPSULE</button>
+  <button class="btn alt" id="bMetrics" onclick="G.toggleMetrics()">📊 STATS</button>
+  <button class="btn alt" id="bStreams" onclick="G.toggleStreams()">📺 STREAMS</button>
+  <button class="btn warn" onclick="G.endGame()">⚑ END</button>
+  <button class="btn" onclick="G.restart()">↻ RESTART</button>
+  <input id="seedbox" value="7" title="random seed" onchange="G.restart()">
+</div>
+
+<div id="hint">Click anywhere to walk the cluster · they share one x position, each runs its own policy</div>
+
+<div id="intro">
+  <h1>Agentic UE-CoMIMO<br>Cinematic Interactive Scenario</h1>
+  <p>Four AI-glass creators (<b>A</b> glass-direct, <b>B</b> reactive-switch,
+     <b>C</b> scene-aware ablation, <b>P</b> proposed) share one position but each runs a
+     different uplink policy from the MATLAB model. <b>Click</b> to walk them outdoors /
+     indoors across the O2I boundary. Indoors a <b>shared CPE</b> appears. The agentic
+     policy P pre-switches bands, delegates to the CPE (phone radio off), and runs a
+     thermal governor. Deep inside is an <b>RF dead-zone</b> that blocks the macro 3.5/700
+     bands: the cellular-only creators (<b>A</b>, <b>B</b>) stall there, while those that
+     delegated to the local CPE (<b>C</b>, <b>P</b>) stream straight through. Glasses have a
+     real <b>0.8 Wh</b> battery; drain it and that creator dies.</p>
+  <p class="keys">CLICK = move · SPACE = pause · F = x60 fast (clouds race) ·
+     M = stats · V = live streams · C = capsule · E = end &amp; scoreboard · R = restart</p>
+  <button class="btn start" onclick="G.start()">► START</button>
+</div>
+
+<div id="report">
+  <span>DOWNLOAD RUN:</span>
+  <button class="btn alt" onclick="G.exportReport()">📈 REPORT.html</button>
+  <button class="btn on" onclick="G.exportXLSX()">📗 Excel .xlsx</button>
+  <button class="btn" onclick="G.exportCSV()">📄 CSV</button>
+</div>
+
+<script>
+/* ============================================================
+   1. CONFIG  —  faithful port of make_config() in
+   scene_aware_ue_comimo_uplink.m  (same numbers, SI units).
+   Battery added per the AR-glass research (Rokid 0.8 Wh).
+   ============================================================ */
+const CFG = {
+  dt:0.1,
+  traj:{v:1.0, x_entrance:0, x_indoor:5},
+  gnb:{x:-100, h:25, nf:7},
+  // cellular figures are the per-user SHARE, not the full carrier (n78 100 MHz /
+  // n28 20 MHz are shared among many UEs) -> half the carrier per user: 50/10 MHz.
+  bw:{wifi:80e6, c35:50e6, c700:10e6},
+  eff:{wifi:0.50, cell:0.55},
+  ch:{pen35:28, pen700:18, body_phone:3, body_glass:2,
+      clutter_per_m:0.2, clutter_cap:4, interf700:6, door35:8,
+      sh35:4, sh70:3, sh_corr:10, tvar_sigma:1.5, tvar_tau:2.0,
+      wifi_out:25, wifi_in:22},
+  glass:{tx:20, ant:-2, p_cam:0.7, p_enc0:0.1, p_enc1:1.6, enc_exp:1.5,
+         p_wifi0:0.3, p_wifi1:0.3, p_cell35:2.0,
+         t_amb:28, t_safe:42, t_max:48,
+         // thermal: 1st-order RC. tau = -dt/ln(a) ≈ 150 s (slower, more realistic
+         // wearable warm-up over minutes); steady rise = b/(1-a) ≈ 6 °C/W (unchanged).
+         th_a:0.99933, th_b:0.004,
+         batt_Wh:0.8,                         // <- researched: Rokid 210 mAh ~0.8 Wh
+         capsule_Wh:6.0, charge_rate:0.0006}, // <- Rokid Power Capsule 1700 mAh ~6.5 Wh
+  phone:{tx:23, ant:0, p_idle:0.3, p_wrx:0.4, p_tx35:2.0, p_tx700:1.2, p_wtx:0.6,
+         batt_Wh:15.0},                      // <- typical 4000 mAh smartphone ~15 Wh
+  cpe:{avail_from_x:0, x:15, tx:23, ant:10, pen:12, cap_total:40e6,
+       bg_low:5e6, bg_dwell_low:30, bg_high:25e6, bg_dwell_high:15,
+       coord_ovh:2e6, setup:1.0, alpha:0.8},
+  video:{bitrates:[3e6,8e6,15e6,25e6], target:15e6, margin:3e6,
+         buf0:2.0, buf_cap:2.5, buf_low:1.0},
+  ctrl:{p_in_thr:0.65, react_thr:-5, react_ema:3.5, min_dur:2.0, gap:1.5, hyst:5e6},
+  scene:{x_trigger:-6, k:0.8, infer_delay:1.0, noise:0.05},
+  qoe:{w_rate:1.0, w_over:0.1, w_stall:4.0, w_delay:1.5, w_energy:0.8, w_thermal:3.0,
+       w_switch:0.5, w_phone:0.6, mode_delay:[0.02,0.03,0.03,0.05,0.05]},
+  gov:{dwell:10, buf_frac:0.8, t_margin:0.5, exit_pin:0.4},
+  // RF dead-zone: a shielded interior pocket (lift lobby / metal-clad hall) over
+  // x in [x0,x1] that blocks the OUTDOOR macro uplink — both 3.5 GHz and 700 MHz
+  // get +cell_extra_dB of isolation — while the in-venue CPE (local, reached over
+  // Wi-Fi) is untouched. So the cellular-only creators (A glass-direct, B reactive
+  // 700) lose their link and stall here, whereas the scene-aware creators that
+  // delegated to the CPE (C, P) stream straight through: a visible win for
+  // proactive infrastructure delegation over reactive band-switching.
+  deadzone:{enable:true, x0:8, x1:14, cell_extra_dB:60},
+  // mechanism 3 — energy-budget bitrate (P only). Because the glasses carry a
+  // FIXED 0.7 W camera overhead, quality-per-joule is maximised at the 15 Mbps
+  // target (going lower loses rate-utility faster than it saves power; going
+  // higher burns power for almost no QoE). So the energy-optimal policy is:
+  // hold 15 Mbps always and ride it to natural death — no reactive down-shift.
+  m3:{enable:true, cap_target:true, ride_to_death:true},
+  // scene complexity / motion — content-adaptive coding. A static, low-motion
+  // POV reaches the SAME perceived quality at a far lower encoded bitrate than a
+  // high-motion one. C in [0,1]; r_need = target·(r_floor_frac + (1-r_floor_frac)·C).
+  // Only the predictive policy (P) exploits this (predicts dwell vs motion from the
+  // known trajectory and drops the encode bitrate when the scene will be static),
+  // which finally lets prediction extend glasses runtime. enable=false => C≡1 =>
+  // identical to the fixed bitrate↔quality mapping.
+  cx:{enable:true, base:0.10, move_w:0.60, door_w:0.50, crowd_w:0.40, tau:1.0, r_floor_frac:0.40},
+  // mechanism 6 — adaptive capture frame-rate. Bitrate can't touch the fixed
+  // ~1.1 W overhead (camera + ISP + radio baseline); a static scene needs no
+  // 30 fps capture, so P drops the frame-rate (down to fps_min_frac, e.g. 15 fps)
+  // when it predicts low motion, cutting the camera/encode-base power that the
+  // bitrate lever leaves on the table. Judder on real motion is penalised in QoE.
+  m6:{enable:true, fps_min_frac:0.6, fps_bias:0.08},
+  // prediction error (P's planner is NOT clairvoyant). cx_noise = std-dev of the
+  // Gaussian error on predicted complexity; cx_bias = deliberate conservative
+  // OVER-estimate so a misprediction errs toward keeping quality up, not dropping
+  // it. Both 0 => ideal prediction (the validated baseline, unchanged).
+  // horizon = look-ahead window (s) for the complexity prediction below.
+  pred:{cx_noise:0.15, cx_bias:0.0, ema_s:3.0, horizon:4.0},   // non-ideal prediction; EMA smooths the per-step estimate so the encoder holds a rung
+};
+const ULTRA = CFG.video.bitrates[CFG.video.bitrates.length-1];   // 25 Mbps
+const TGT_LVL = CFG.video.bitrates.indexOf(CFG.video.target);    // index 2
+const MODE_NAMES = ['M0 GLASS','M1 3.5G','M2 700M','M3 SPLIT','M4 CPE·OFF'];
+const modeLabel = m => (m>=1 && m<=5) ? MODE_NAMES[m-1] : '—';
+// human-readable tier for each ABR rung: 3->low, 8->HD, 15->2K, 25->4K
+const VID_TIERS = ['low','HD','2K','4K'];
+const vidTier = bps => { const i=CFG.video.bitrates.indexOf(bps); return i>=0 ? VID_TIERS[i] : ''; };
+
+// HiDPI: render the whole canvas at device-pixel resolution (capped x2) for
+// crisp text and edges on Retina displays; all draw code stays in 960x540 logical units.
+const DPR = Math.min(2, (typeof window!=='undefined' && window.devicePixelRatio) || 1);
+
+/* ---- live-stream preview: how blocky each delivered bitrate looks ----
+   The 6 creators all see the SAME real scene; only the delivered bitrate
+   differs, so we render ONE detailed POV base, then for each tile downsample
+   to its bitrate's block resolution and upscale with no smoothing.
+   Fewer pixels per block = crisper. High-frequency detail (text, grids) is
+   exactly what a low bitrate destroys first, so it reads as a quality cue. */
+const blockFor = vrate => vrate>=25e6 ? 1   // 4K  near-native
+                        : vrate>=15e6 ? 2   // 2K  light blocking
+                        : vrate>= 8e6 ? 4   // HD  visible blocks
+                        :               7;  // low coarse mosaic
+// PERCEPTUAL block size: sharpness reflects how well the encoded bitrate AND
+// frame-rate meet the SCENE's need (mechanisms 5/6), not the raw bitrate. So a
+// static scene looks sharp at 8 Mbps (same as 25 Mbps), while under-provisioning
+// bitrate OR frame-rate for real motion shows up as blocking.
+function perceptualBlock(vrate, fpsFrac, C){
+  if(!CFG.cx.enable) return blockFor(vrate);
+  const pq=perceptualQ(vrate, fpsFrac, C);
+  return pq>=0.98 ? 1 : pq>=0.85 ? 2 : pq>=0.6 ? 4 : 7;
+}
+// Paint a detailed first-person AI-glasses POV into a w*h context, tied to the
+// world (outdoor street -> doorway -> indoor venue) with handheld shake, motion,
+// depth layers, signage text, perspective floor grid, passers-by and a live HUD.
+function paintPOV(c,w,h,W){
+  const env=W.env(), t=W.t, pf=Math.max(0,Math.min(1,W.x/5)), F=Math.max(1,w/480);
+  c.clearRect(0,0,w,h);
+  c.save();
+  const amp=Math.max(0.6,w*0.009), O=amp*3;
+  c.translate(Math.sin(t*6.5)*amp, Math.cos(t*4.7)*amp*0.6);   // handheld shake
+  const hor=Math.round(h*0.54), vx=w*0.5;
+  // ---------- sky / ceiling (graded, lit) ----------
+  if(env<2){
+    const g=c.createLinearGradient(0,-O,0,hor);
+    g.addColorStop(0,'#1f4e86'); g.addColorStop(0.5,'#4f93d6'); g.addColorStop(0.82,'#a9cdec'); g.addColorStop(1,'#dde9f2');
+    c.fillStyle=g; c.fillRect(-O,-O,w+2*O,hor+O);
+    glow(c,w*0.74,h*0.14,w*0.22,'rgba(255,244,210,0.85)',1);                          // sun bloom
+    c.fillStyle='#fffaf0'; c.beginPath(); c.arc(w*0.74,h*0.14,w*0.03,0,7); c.fill();
+    c.save(); c.shadowColor='rgba(255,255,255,0.9)'; c.shadowBlur=h*0.06;             // soft clouds
+    [[0,h*0.14,w*0.18,0.9],[w*0.5,h*0.22,w*0.13,0.7]].forEach(([ox,cy,cw,al])=>{
+      const cx=((t*5+ox)%(w*1.4))-w*0.2; c.fillStyle='rgba(255,255,255,'+al+')';
+      c.beginPath(); c.ellipse(cx,cy,cw*0.5,h*0.03,0,0,7); c.fill(); }); c.restore();
+    for(let layer=0;layer<2;layer++){ const al=layer===0?0.35:0.6, bh0=layer===0?0.10:0.16; // hazy skyline
+      c.fillStyle='rgba(120,150,185,'+al+')';
+      for(let i=0;i<12;i++){ const bx=((i*w*0.10)-(((W.x*3+layer*40)*F)%(w*0.10)))-w*0.05;
+        const bh=h*(bh0+0.05*(((i*37+layer*3)%5)/4)); c.fillRect(bx,hor-bh,w*0.075,bh); } }
+  } else {
+    const g=c.createLinearGradient(0,-O,0,hor); g.addColorStop(0,'#1a1622'); g.addColorStop(1,'#2c2638');
+    c.fillStyle=g; c.fillRect(-O,-O,w+2*O,hor+O);
+    for(let i=0;i<4;i++){ const f=i/4, lw=w*(0.30-f*0.22), ly=h*(0.05+f*0.05);        // recessed ceiling lights
+      glow(c,vx,ly+h*0.01,lw*0.6,'rgba(255,225,170,0.25)',1);
+      c.fillStyle='#ffe6a8'; c.fillRect(vx-lw/2,ly,lw,h*0.02); }
+  }
+  // ---------- floor / ground (graded + perspective + sheen) ----------
+  const fg=c.createLinearGradient(0,hor,0,h+O);
+  if(env<2){ fg.addColorStop(0,'#6b7066'); fg.addColorStop(0.2,'#4b4f48'); fg.addColorStop(1,'#23251f'); }
+  else { fg.addColorStop(0,'#7a6346'); fg.addColorStop(0.2,'#5d4a33'); fg.addColorStop(1,'#2c2419'); }
+  c.fillStyle=fg; c.fillRect(-O,hor,w+2*O,h-hor+O);
+  c.strokeStyle=env<2?'rgba(20,22,18,0.30)':'rgba(20,16,10,0.35)'; c.lineWidth=F*0.8;
+  for(let r=-3;r<=3;r++){ const fx=vx+r*w*0.18; c.beginPath(); c.moveTo(vx,hor); c.lineTo(fx,h); c.stroke(); }
+  const scroll=(t*0.9)%1;
+  for(let i=0;i<6;i++){ const f=(i+scroll)/6, yy=hor+(h-hor)*f*f;
+    c.strokeStyle='rgba(20,22,18,'+(0.10+0.14*f)+')'; c.beginPath(); c.moveTo(vx-w*0.55*f,yy); c.lineTo(vx+w*0.55*f,yy); c.stroke(); }
+  const sh=c.createLinearGradient(0,hor,0,h); sh.addColorStop(0,'rgba(255,255,255,0.10)'); sh.addColorStop(0.4,'rgba(255,255,255,0)');
+  c.fillStyle=sh; c.fillRect(-O,hor,w+2*O,h-hor);
+  // ---------- side buildings / walls (gradient facades, glass windows, glowing signs) ----------
+  const slab=(sx,sign,scol)=>{
+    const topY=hor-h*0.42, slabW=w*0.2, slabH=hor-topY;
+    const fgr=c.createLinearGradient(sx,0,sx+slabW,0);
+    if(env<2){ fgr.addColorStop(0,'#7a6a55'); fgr.addColorStop(1,'#5a4d3d'); } else { fgr.addColorStop(0,'#403849'); fgr.addColorStop(1,'#2c2636'); }
+    c.fillStyle=fgr; c.fillRect(sx,topY,slabW,slabH);
+    for(let r=0;r<5;r++)for(let k=0;k<3;k++){ const wx=sx+slabW*(0.10+k*0.30), wy=topY+slabH*(0.06+r*0.16), ww=slabW*0.22, wh=slabH*0.10;
+      const wgr=c.createLinearGradient(wx,wy,wx+ww,wy+wh);
+      if(env<2){ wgr.addColorStop(0,'#cfeaff'); wgr.addColorStop(1,'#6f9ec4'); } else { wgr.addColorStop(0,'#ffe6ad'); wgr.addColorStop(1,'#9c7a3e'); }
+      c.fillStyle=wgr; c.fillRect(wx,wy,ww,wh); }
+    const sy=topY-h*0.085, sw=slabW*0.92, sxx=sx+slabW*0.04;
+    glow(c,sxx+sw/2,sy+h*0.025,sw*0.6,withAlpha(scol,0.5),1);
+    c.fillStyle=scol; rrect(c,sxx,sy,sw,h*0.05,h*0.012); c.fill();
+    c.fillStyle='#fff'; c.font='700 '+Math.max(7,Math.round(h*0.04))+'px system-ui'; c.textAlign='center';
+    c.fillText(sign, sxx+sw/2, sy+h*0.038);
+  };
+  slab(0,            env<2?'CAFE':'HALL 3', env<2?'#c83737':'#2a6f9e');
+  slab(w*0.80,       env<2?'24H':'EXPO',    env<2?'#2f7f4a':'#9e5a2a');
+  // ---------- doorway light spill while crossing the O2I boundary ----------
+  if(env===1){ const dw=w*0.45*pf+w*0.14, dh=h*0.66*pf+h*0.22, dy=hor-dh*0.66;
+    glow(c,vx,hor-dh*0.3,dw*0.7,'rgba(255,220,150,0.40)',1);
+    const dgr=c.createLinearGradient(0,dy,0,dy+dh); dgr.addColorStop(0,'#2a2230'); dgr.addColorStop(1,'#0d0a08');
+    c.fillStyle='#3a2f28'; c.fillRect(vx-dw/2-F*2,dy,dw+F*4,dh); c.fillStyle=dgr; c.fillRect(vx-dw/2,dy,dw,dh); }
+  // ---------- passers-by (shaded, two depths, with contact shadow) ----------
+  const person=(px,py,scH,col)=>{ const bw=scH*0.36, bob=Math.sin(t*4+px*0.05)*scH*0.03;
+    c.save(); c.fillStyle='rgba(0,0,0,0.25)'; c.beginPath(); c.ellipse(px,py+bob,bw*0.7,scH*0.05,0,0,7); c.fill(); c.restore();
+    const bg=c.createLinearGradient(px-bw/2,0,px+bw/2,0); bg.addColorStop(0,col); bg.addColorStop(1,'rgba(0,0,0,0.45)');
+    c.fillStyle=bg; rrect(c,px-bw/2,py-scH+bob,bw,scH*0.7,bw*0.3); c.fill();
+    c.fillStyle='#caa07a'; c.beginPath(); c.arc(px,py-scH+bob,bw*0.32,0,7); c.fill(); };
+  person(((t*26*F)%(w*1.4))-w*0.2, hor+h*0.10, h*0.16, '#3a4a5a');
+  person(w-(((t*20*F+200)%(w*1.4))-w*0.2), hor+h*0.20, h*0.24, '#5a3a48');
+  // ---------- main subject ahead (shaded) ----------
+  const bob=Math.sin(t*3)*h*0.012, sH=h*0.32, sw2=w*0.07, sy2=hor+h*0.22;
+  c.save(); c.fillStyle='rgba(0,0,0,0.3)'; c.beginPath(); c.ellipse(vx,sy2+bob,sw2*0.8,h*0.02,0,0,7); c.fill(); c.restore();
+  const bg2=c.createLinearGradient(vx-sw2/2,0,vx+sw2/2,0);
+  bg2.addColorStop(0, env<2?'#33414f':'#26303c'); bg2.addColorStop(1,'rgba(0,0,0,0.5)');
+  c.fillStyle=bg2; rrect(c,vx-sw2/2,sy2-sH+bob,sw2,sH*0.72,sw2*0.28); c.fill();
+  const skg=c.createRadialGradient(vx-sw2*0.1,sy2-sH+bob,1,vx,sy2-sH+bob,sw2*0.45);
+  skg.addColorStop(0,'#f0c69a'); skg.addColorStop(1,'#b07e54'); c.fillStyle=skg;
+  c.beginPath(); c.arc(vx,sy2-sH+bob,sw2*0.36,0,7); c.fill();
+  c.restore();   // end handheld-shake transform
+  // ---------- atmospheric haze near the horizon ----------
+  const hz=c.createLinearGradient(0,hor-h*0.12,0,hor+h*0.04);
+  hz.addColorStop(0,'rgba(210,220,230,0)'); hz.addColorStop(1, env<2?'rgba(220,230,238,0.35)':'rgba(60,50,40,0.30)');
+  c.fillStyle=hz; c.fillRect(0,hor-h*0.12,w,h*0.16);
+  // ---------- cinematic vignette ----------
+  const vg=c.createRadialGradient(vx,h*0.5,h*0.32,vx,h*0.5,h*0.85);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,0.45)');
+  c.fillStyle=vg; c.fillRect(0,0,w,h);
+  // ---------- live-stream HUD overlay ----------
+  c.strokeStyle='rgba(255,255,255,0.7)'; c.lineWidth=F;
+  const m=w*0.04, L=w*0.05;
+  [[m,m,1,1],[w-m,m,-1,1],[m,h-m,1,-1],[w-m,h-m,-1,-1]].forEach(([cx,cy,dx,dy])=>{
+    c.beginPath(); c.moveTo(cx,cy); c.lineTo(cx+dx*L,cy); c.moveTo(cx,cy); c.lineTo(cx,cy+dy*L); c.stroke(); });
+  if((t*1.5)%1>0.25){ glow(c,w*0.075,h*0.085,w*0.03,'rgba(255,60,50,0.8)',1);
+    c.fillStyle='#ff3b30'; c.beginPath(); c.arc(w*0.075,h*0.085,w*0.012,0,7); c.fill(); }
+  c.fillStyle='#fff'; c.font='700 '+Math.max(8,Math.round(h*0.044))+'px system-ui'; c.textAlign='left';
+  c.fillText('REC', w*0.10, h*0.105);
+  const mm=Math.floor(W.t/60).toString().padStart(2,'0'), ss=Math.floor(W.t%60).toString().padStart(2,'0');
+  c.textAlign='right'; c.fillText(mm+':'+ss, w*0.94, h*0.105);
+}
+
+// Slimmed baseline set: the old B (phone 3.5 fixed) and D (phone 700 only) were
+// transitional variants of the reactive switch / fixed-700 relay; a real handset
+// already band-switches, so they are dropped. A-E collapse to A, B, C (+ P).
+const POLICIES = [
+  {id:1, key:'A', name:'glass 3.5 direct',        col:'#b0b0b0'},
+  {id:2, key:'B', name:'reactive 700 switch',     col:'#e08020'},
+  {id:3, key:'C', name:'scene-aware, no governor',col:'#9466bd'},
+  {id:4, key:'P', name:'PROPOSED: scene+governor',col:'#2f7fff'},
+];
+
+/* ============================================================
+   2. Seeded RNG (mulberry32) + Gaussian — reproducible runs.
+   ============================================================ */
+function makeRNG(seed){
+  let a = (seed>>>0) || 1;
+  let spare=null;
+  const u = ()=>{ a|=0; a=a+0x6D2B79F5|0;
+    let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296; };
+  const n = ()=>{ if(spare!==null){const s=spare;spare=null;return s;}
+    let u1=Math.max(u(),1e-12), u2=u();
+    const r=Math.sqrt(-2*Math.log(u1)), th=2*Math.PI*u2;
+    spare=r*Math.sin(th); return r*Math.cos(th); };
+  return {u,n};
+}
+
+/* ============================================================
+   3. Channel math — ports pl(), rate(), make_channels() body.
+   ============================================================ */
+const log10 = x=>Math.log10(x);
+const dB2lin = d=>Math.pow(10, d/10);
+const pl  = (d,fc)=>13.54 + 39.08*log10(Math.max(d,1)) + 20*log10(fc);
+const rate= (eta,bw,sinr)=>eta*bw*Math.log2(1+dB2lin(sinr));
+const clip=(z,lo,hi)=>Math.min(Math.max(z,lo),hi);
+
+/* spatial (position-dependent) shadow profile, like corr_shadow():
+   white noise on a 1 m grid, smoothed, normalised to sigma. */
+function makeShadow(rng, sigma){
+  const XMIN=-70, XMAX=70, N=XMAX-XMIN+1, w=10;
+  const raw=Array.from({length:N},()=>rng.n());
+  const sm=new Array(N).fill(0);
+  for(let i=0;i<N;i++){let s=0,c=0;
+    for(let j=Math.max(0,i-w);j<Math.min(N,i+w+1);j++){s+=raw[j];c++;}
+    sm[i]=s/c;}
+  let m=0; sm.forEach(v=>m+=v); m/=N;
+  let sd=0; sm.forEach(v=>sd+=(v-m)*(v-m)); sd=Math.sqrt(sd/N)+1e-9;
+  for(let i=0;i<N;i++) sm[i]=(sm[i]-m)/sd*sigma;
+  return {XMIN, get:(x)=>{ const f=clip(x-XMIN,0,N-1.001);
+    const i=Math.floor(f), t=f-i; return sm[i]*(1-t)+sm[i+1]*t; }};
+}
+
+/* ============================================================
+   4. Power / QoE — ports glass_power, phone_power, qoe_score.
+   ============================================================ */
+function glassPower(vrate, isM0, fpsFrac){
+  const r=vrate/ULTRA, ff=(fpsFrac==null?1:fpsFrac);
+  // frame-rate scales capture + per-frame encode-base (sensor/ISP); the
+  // bitrate-driven encode term and radio are data/link costs, untouched by fps.
+  let p=ff*(CFG.glass.p_cam + CFG.glass.p_enc0) + CFG.glass.p_enc1*Math.pow(r,CFG.glass.enc_exp);
+  p += isM0 ? CFG.glass.p_cell35 : (CFG.glass.p_wifi0 + CFG.glass.p_wifi1*r);
+  return p;
+}
+function phonePower(mode){
+  const c=CFG.phone;
+  switch(mode){
+    case 1: return c.p_idle;
+    case 2: return c.p_idle+c.p_wrx+c.p_tx35;
+    case 3: return c.p_idle+c.p_wrx+c.p_tx700;
+    case 4: return c.p_idle+c.p_wrx+c.p_tx700+c.p_wtx;
+    case 5: return c.p_idle+c.p_wrx+c.p_wtx;
+    default:return c.p_idle;
+  }
+}
+// Bitrate needed to reach the target perceptual quality at scene complexity C.
+// Static scene (C→0) needs only r_floor_frac·target; full-motion (C→1) needs target.
+function rNeed(C){ const x=CFG.cx.enable?clip(C,0,1):1;
+  return CFG.video.target*(CFG.cx.r_floor_frac + (1-CFG.cx.r_floor_frac)*x); }
+// Frame-rate the scene needs: a static scene is fine at fps_min_frac, full motion
+// needs full rate. Used both to size P's capture rate and to judge judder.
+function fpsNeed(C){ if(!CFG.m6.enable) return 1;
+  const f=CFG.m6.fps_min_frac; return f + (1-f)*clip(C,0,1); }
+// PERCEPTUAL quality: needs BOTH enough bitrate AND enough frame-rate for the
+// motion; the weaker link caps it. A static scene looks full-quality at low
+// bitrate AND low fps; a fast pan needs both, so under-provisioning either shows.
+function perceptualQ(vrate, fpsFrac, C){ const rn=rNeed(C);
+  const pqRate=Math.min(1, vrate/rn);
+  const pqFps =CFG.m6.enable ? Math.min(1, (fpsFrac==null?1:fpsFrac)/fpsNeed(C)) : 1;
+  return Math.min(pqRate,pqFps) + CFG.qoe.w_over*Math.max(0,(vrate-rn)/Math.max(ULTRA-rn,1)); }
+// SATURATING adequacy in [0,1] (the min-of-adequacies WITHOUT the QoE overshoot
+// bonus). Used for the useful-quality-seconds metric so that quality credit caps
+// at 1 per second and the integral can never exceed wall-clock alive time.
+function satQ(vrate, fpsFrac, C){ const rn=rNeed(C);
+  const pqRate=Math.min(1, vrate/rn);
+  const pqFps =CFG.m6.enable ? Math.min(1, (fpsFrac==null?1:fpsFrac)/fpsNeed(C)) : 1;
+  return Math.min(pqRate,pqFps); }
+function qoeScore(vrate, stall, mode, pRad, ppw, temp, switched, C, fpsFrac){
+  const Q=CFG.qoe, g=CFG.glass;
+  const phMax=CFG.phone.p_idle+CFG.phone.p_wrx+CFG.phone.p_tx35;
+  const rateUtil = perceptualQ(vrate, fpsFrac, C);
+  return Q.w_rate*rateUtil
+       - Q.w_stall*(stall?1:0)
+       - Q.w_delay*Q.mode_delay[mode-1]/0.2
+       - Q.w_energy*Math.max(0,pRad)/g.p_cell35
+       - Q.w_phone*ppw/phMax
+       - Q.w_thermal*Math.max(0,temp-g.t_safe)/(g.t_max-g.t_safe)
+       - Q.w_switch*(switched?1:0);
+}
+
+/* ============================================================
+   5. World — shared geometry + channel state, stepped online.
+   ============================================================ */
+class World {
+  constructor(seed){
+    this.seed = seed;
+    this.rng = makeRNG(seed);
+    this.sh35 = makeShadow(this.rng, CFG.ch.sh35);
+    this.sh70 = makeShadow(this.rng, CFG.ch.sh70);
+    this.t = 0;
+    this.x = -30;            // start outdoors
+    this.targetX = -30;
+    this.tv35 = 0; this.tv70 = 0;      // AR(1) temporal fades
+    this.bgHigh = false; this.bg = CFG.cpe.bg_low;   // CPE background load (Markov)
+    this.xhist = new Array(Math.round(CFG.scene.infer_delay/CFG.dt)).fill(-30);
+    this.pin = 0;
+    this.d3dc = Math.sqrt(Math.pow(CFG.cpe.x-CFG.gnb.x,2)+CFG.gnb.h*CFG.gnb.h);
+    this.passers = [];       // visual passers-by during CPE-busy spells
+    this.busy = false;
+    this.cx = CFG.cx.base;   // scene complexity / motion in [0,1] (smoothed)
+    this.computeChannel();   // initial snapshot
+  }
+  env(){ return this.x>=CFG.traj.x_indoor?2 : (this.x>=CFG.traj.x_entrance?1:0); }
+  cpeAvail(){ return this.x>=CFG.cpe.avail_from_x; }
+
+  stepKinematics(){
+    const dx = CFG.traj.v*CFG.dt;
+    if(Math.abs(this.targetX-this.x)<=dx) this.x=this.targetX;
+    else this.x += Math.sign(this.targetX-this.x)*dx;
+  }
+  stepStochastics(){
+    const r=Math.exp(-CFG.dt/CFG.ch.tvar_tau), s=Math.sqrt(1-r*r)*CFG.ch.tvar_sigma;
+    this.tv35 = r*this.tv35 + s*this.rng.n();
+    this.tv70 = r*this.tv70 + s*this.rng.n();
+    // CPE shared background load: two-state Markov
+    const wasBusy=this.busy;
+    if(!this.bgHigh && this.rng.u() < CFG.dt/CFG.cpe.bg_dwell_low)  this.bgHigh=true;
+    else if(this.bgHigh && this.rng.u() < CFG.dt/CFG.cpe.bg_dwell_high) this.bgHigh=false;
+    this.bg = this.bgHigh ? CFG.cpe.bg_high : CFG.cpe.bg_low;
+    this.busy = this.bgHigh && this.cpeAvail() && this.env()===2;
+    if(this.busy && !wasBusy && this.passers.length===0){
+      for(let i=0;i<2;i++) this.passers.push({px:this.rng.u(), ph:this.rng.u()});
+    }
+    if(!this.busy) this.passers.length=0;
+    // scene prediction p_in (sigmoid of lagged x + noise)
+    this.xhist.push(this.x); const xl=this.xhist.shift();
+    const praw=1/(1+Math.exp(-CFG.scene.k*(xl-CFG.scene.x_trigger)));
+    this.pin = clip(praw + CFG.scene.noise*this.rng.n(), 0, 1);
+  }
+  /* Pure channel snapshot at an ARBITRARY position x, with the temporal fades
+     (tv35,tv70) and CPE background load (bg) passed in. computeChannel() calls
+     it with the current live state. */
+  chanAt(x, tv35, tv70, bg){
+    const g=CFG.gnb, c=CFG.ch;
+    // RF dead-zone: +dz dB of extra isolation on the OUTDOOR macro uplink
+    // (3.5 GHz glass/phone + 700 MHz phone). The local CPE link is unaffected.
+    const dz=(CFG.deadzone.enable && x>=CFG.deadzone.x0 && x<=CFG.deadzone.x1)?CFG.deadzone.cell_extra_dB:0;
+    const d3d=Math.sqrt(Math.pow(x-g.x,2)+g.h*g.h);
+    const penf=clip(x/CFG.traj.x_indoor,0,1);
+    const depth=Math.max(0,x-CFG.traj.x_indoor);
+    const clut=Math.min(depth*c.clutter_per_m, c.clutter_cap);
+    const pen35=penf*c.pen35 + c.door35*4*penf*(1-penf);
+    const pen70=penf*c.pen700;
+    const n35=-174+10*log10(CFG.bw.c35)+g.nf;
+    const n70=-174+10*log10(CFG.bw.c700)+g.nf+c.interf700;
+    const s35=this.sh35.get(x), s70=this.sh70.get(x);
+    const sinrG = CFG.glass.tx+CFG.glass.ant - pl(d3d,3.5) - s35 - tv35 - pen35 - clut - c.body_glass - dz - n35;
+    const sinrP35= CFG.phone.tx+CFG.phone.ant - pl(d3d,3.5) - s35 - tv35 - pen35 - clut - c.body_phone - dz - n35;
+    const sinrP70= CFG.phone.tx+CFG.phone.ant - pl(d3d,0.7) - s70 - tv70 - pen70 - clut - c.body_phone - dz - n70;
+    const sinrC = CFG.cpe.tx+CFG.cpe.ant - pl(this.d3dc,0.7) - CFG.cpe.pen - n70;
+    const rG=rate(CFG.eff.cell,CFG.bw.c35,sinrG);
+    const rP35=rate(CFG.eff.cell,CFG.bw.c35,sinrP35);
+    const rP70=rate(CFG.eff.cell,CFG.bw.c700,sinrP70);
+    const rClink=rate(CFG.eff.cell,CFG.bw.c700,sinrC);
+    const cpeCap=Math.max(0, Math.min(rClink, CFG.cpe.cap_total - bg));
+    const env = x>=CFG.traj.x_indoor?2 : (x>=CFG.traj.x_entrance?1:0);
+    const wifiSinr = env===0 ? c.wifi_out : c.wifi_in;
+    const rW=rate(CFG.eff.wifi,CFG.bw.wifi,wifiSinr);
+    const a=CFG.cpe.alpha;
+    let coop=a*(rP70+cpeCap)+(1-a)*Math.max(rP70,cpeCap)-CFG.cpe.coord_ovh;
+    coop=Math.max(coop,0);
+    const cpeAvail = x>=CFG.cpe.avail_from_x;
+    const R=[rG, Math.min(rW,rP35), Math.min(rW,rP70), Math.min(rW,coop), Math.min(rW,cpeCap)];
+    const avail=[true,true,true,cpeAvail,cpeAvail];
+    return {R, avail, sinrP35, cpeCap, env, cpeAvail};
+  }
+  computeChannel(){
+    const s=this.chanAt(this.x, this.tv35, this.tv70, this.bg);
+    this.R=s.R; this.avail=s.avail; this.sinrP35=s.sinrP35; this.cpeCap=s.cpeCap;
+  }
+  /* DETERMINISTIC complexity from the trajectory alone (ego-motion + O2I door),
+     which P can predict perfectly from the known path. Crowd is added live only. */
+  egoComplexity(x, moving){
+    const C=CFG.cx, env = x>=CFG.traj.x_indoor?2:(x>=CFG.traj.x_entrance?1:0);
+    return clip(C.base + C.move_w*(moving?1:0) + C.door_w*(env===1?1:0), 0, 1);
+  }
+  stepComplexity(){
+    const C=CFG.cx;
+    const moving = Math.abs(this.targetX-this.x) > 1e-6;
+    const crowd  = this.busy ? 1 : (this.passers.length ? 0.5 : 0);
+    const raw = clip(this.egoComplexity(this.x, moving) + C.crowd_w*crowd, 0, 1);
+    const a = Math.exp(-CFG.dt/C.tau);
+    this.cx = a*this.cx + (1-a)*raw;
+  }
+  step(){
+    this.t+=CFG.dt;
+    this.stepKinematics();
+    this.stepStochastics();
+    this.stepComplexity();
+    this.computeChannel();
+  }
+}
+
+/* ============================================================
+   6. Agent — one per policy; ports run_policy() + scene_aware().
+   ============================================================ */
+class Agent {
+  constructor(pid){
+    this.pid=pid;
+    this.prng=makeRNG((pid*2654435761)>>>0);   // private RNG for prediction error (keeps World RNG untouched)
+    this.fpsFrac=1; this.cxPred=0; this.cxEma=CFG.cx.base;   // mechanism 6: frame-rate fraction + (smoothed) predicted complexity
+    this.mode=0; this.prev=0; this.lastSw=-1e9; this.gapUntil=-1;
+    this.cpeInit=false; this.tripped=false; this.ema=null;
+    this.useGov=(pid===4); this.govOn=false; this.tIndoor=Infinity;   // P (proposed) only
+    this.buf=CFG.video.buf0; this.level=CFG.video.bitrates.length; this.downgrades=0;
+    this.temp=CFG.glass.t_amb+6; this.energy=0; this.phEnergy=0;
+    this.glassBatt=CFG.glass.batt_Wh; this.phoneBatt=CFG.phone.batt_Wh;
+    this.capsuleWh=CFG.glass.capsule_Wh; this.onCapsule=false;
+    this.dead=false; this.deathT=null; this.aliveTime=0;
+    // live readouts
+    this.delivered=0; this.vrate=0; this.stall=false; this.q=0;
+    this.qSum=0; this.qN=0; this.stallTime=0; this.maxTemp=this.temp; this.switches=0;
+    this.usefulQ=0;   // longevity-aware metric: Σ rateUtil·dt over alive, non-stalled time
+    this.justSw=false;
+  }
+  sceneAware(W, need){
+    const env=W.env(), indoor=env===2, outdoor=env===0;
+    const sinrOk=W.sinrP35>0;
+    if(indoor && W.cpeAvail()){
+      const cands=[5,3,4];
+      const curPw=this.mode>0?phonePower(this.mode):Infinity;
+      for(const m of cands){
+        let thr=need;
+        if(phonePower(m)<curPw) thr+=CFG.ctrl.hyst;
+        if(W.avail[m-1] && W.R[m-1]>=thr) return m;
+      }
+      // best effort among M2/M3/M4
+      let best=3,bv=-1;
+      for(const m of [3,4,5]){ const r=W.R[m-1]*(W.avail[m-1]?1:0); if(r>bv){bv=r;best=m;} }
+      return best;
+    }
+    if(W.pin>=CFG.ctrl.p_in_thr || !sinrOk) return 3;
+    if(outdoor && sinrOk) return 2;
+    return 2;
+  }
+  /* Smallest ABR rung whose bitrate meets the predicted perceptual need. Walks
+     the known trajectory, takes the WORST (max) complexity over the horizon so a
+     dip into motion keeps quality up; crowd is stochastic so the current level is
+     used as a conservative estimate. */
+  perceptualTier(W){
+    const br=CFG.video.bitrates, dt=CFG.dt, sd=CFG.traj.v*dt;
+    const H=Math.round(CFG.pred.horizon/dt), tx=W.targetX;
+    const crowd = W.busy?1:(W.passers.length?0.5:0);
+    let xi=W.x, Cpred=0;
+    for(let k=0;k<H;k++){
+      const xp=xi; if(Math.abs(tx-xi)<=sd) xi=tx; else xi+=Math.sign(tx-xi)*sd;
+      const c = clip(W.egoComplexity(xi, Math.abs(xi-xp)>1e-9) + CFG.cx.crowd_w*crowd, 0, 1);
+      if(c>Cpred) Cpred=c;
+    }
+    // non-ideal prediction: corrupt the estimate by noise (+ a conservative bias)
+    Cpred = clip(Cpred + CFG.pred.cx_bias + CFG.pred.cx_noise*this.prng.n(), 0, 1);
+    const a=Math.exp(-dt/CFG.pred.ema_s);     // smooth the noisy estimate (encoder holds a rung)
+    this.cxEma = a*this.cxEma + (1-a)*Cpred;
+    this.cxPred=this.cxEma;                   // smoothed value drives bitrate + frame-rate
+    const rn=rNeed(this.cxPred);
+    for(let tier=1; tier<=br.length; tier++) if(br[tier-1]>=rn) return tier;
+    return br.length;
+  }
+  step(W){
+    const dt=CFG.dt, t=W.t, br=CFG.video.bitrates;
+    this.justSw=false;
+
+    /* Rokid Power Capsule: while attached and it has charge, the glasses run
+       off the capsule (and recharge), and a dead creator is REVIVED. */
+    this.onCapsule = G.capsule && this.capsuleWh>0;
+    if(this.onCapsule && this.dead) this.dead=false;
+
+    /* battery death: glasses off, stream stops. QoE average is FROZEN at the
+       moment of death (headline metric = QoE while actually streaming);
+       longevity is reported separately as uptime. */
+    if(this.dead){
+      this.delivered=0; this.vrate=0; this.stall=true;
+      this.buf=Math.max(0,this.buf-dt);
+      this.temp=CFG.glass.t_amb+CFG.glass.th_a*(this.temp-CFG.glass.t_amb);
+      this.q=0;
+      return;
+    }
+
+    /* Step 0: governor (P only). Reset dwell when not indoor. */
+    if(W.env()===2){ if(this.tIndoor===Infinity) this.tIndoor=t; }
+    else this.tIndoor=Infinity;
+    if(this.useGov && !this.govOn){
+      const pTop=glassPower(ULTRA,false);
+      const tss=CFG.glass.t_amb + CFG.glass.th_b/(1-CFG.glass.th_a)*pTop;
+      if(this.tIndoor!==Infinity && (t-this.tIndoor)>=CFG.gov.dwell
+         && this.buf>=CFG.gov.buf_frac*CFG.video.buf_cap
+         && tss>CFG.glass.t_safe-CFG.gov.t_margin) this.govOn=true;
+    } else if(this.govOn && W.pin<CFG.gov.exit_pin) this.govOn=false;
+    // mechanism 3: cap at the 15 Mbps target ALWAYS (most quality-per-joule),
+    // not just after the conditional governor's indoor-dwell test.
+    const m3=this.useGov&&CFG.m3.enable;
+    let kmax=(m3&&CFG.m3.cap_target)?(TGT_LVL+1):(this.govOn?(TGT_LVL+1):br.length);
+    this.battSave=false; this.thermSave=false;
+    if(this.useGov){
+      // thermal-reactive cap (P only) — works ANYWHERE, incl. outdoors:
+      // ramp the bitrate down as the glasses approach their safe limit.
+      if(this.temp>CFG.glass.t_safe){ kmax=Math.min(kmax,2); this.thermSave=true; }      // >42°C -> 8 Mbps
+      else if(this.temp>CFG.glass.t_safe-1){ kmax=Math.min(kmax,TGT_LVL+1); this.thermSave=true; } // >41°C -> 15 Mbps
+      // battery-aware tier: legacy reactive down-shift. mechanism 3 disables it
+      // (ride_to_death) because dropping below 15 Mbps near end-of-life loses
+      // more quality-seconds than the little extra runtime it buys.
+      if(!(m3&&CFG.m3.ride_to_death)){
+        const bf=this.glassBatt/CFG.glass.batt_Wh;
+        if(bf<0.10){ kmax=1; this.battSave=true; }
+        else if(bf<0.25){ kmax=Math.min(kmax,2); this.battSave=true; }
+      }
+    }
+    // mechanism 5: perceptual-rate cap (P only). Predict scene complexity from
+    // the known trajectory and encode only as many bits as the picture needs —
+    // a static dwell looks identical at 8 Mbps, saving glasses power => uptime.
+    this.cxSave=false; this.fpsFrac=1; this.fpsSave=false;
+    if(m3 && CFG.cx.enable){
+      const pt=this.perceptualTier(W);
+      if(pt<kmax){ kmax=pt; this.cxSave=true; }
+      // mechanism 6: match capture frame-rate to the predicted motion.
+      // frame-rate uses its OWN conservative bias (decoupled from the bitrate
+      // choice) so a motion-misprediction errs toward smoother video, not judder.
+      if(CFG.m6.enable){ this.fpsFrac=fpsNeed(clip(this.cxPred+CFG.m6.fps_bias,0,1)); this.fpsSave=this.fpsFrac<0.999; }
+    }
+    const need=br[kmax-1]+CFG.video.margin;
+
+    /* Step 1: desired mode */
+    let want;
+    switch(this.pid){
+      case 1: want=1; break;                       // A: fixed M0 (glass 3.5G direct)
+      case 2:                                       // B: reactive M1 -> M2 on threshold
+        if(this.ema===null) this.ema=W.sinrP35;
+        else this.ema += (dt/CFG.ctrl.react_ema)*(W.sinrP35-this.ema);
+        if(this.ema<CFG.ctrl.react_thr) this.tripped=true;
+        want=2+(this.tripped?1:0); break;
+      default: want=this.sceneAware(W,need);        // C (no gov) & P (gov): scene-aware
+    }
+
+    /* Step 2: hysteresis + make-before-break */
+    if(this.mode===0){ this.mode=want; this.lastSw=t; }
+    else if(want!==this.mode && (t-this.lastSw)>=CFG.ctrl.min_dur){
+      let g=CFG.ctrl.gap;
+      if((want===4||want===5)&&!this.cpeInit){ g+=CFG.cpe.setup; this.cpeInit=true; }
+      this.gapUntil=t+g; this.prev=this.mode; this.mode=want; this.lastSw=t;
+      this.justSw=true; this.switches++;
+    }
+
+    /* Step 3: serving mode during MBB gap */
+    const inGap=t<this.gapUntil;
+    const mused=(inGap&&this.prev>0)?this.prev:this.mode;
+    this.delivered=W.R[mused-1]*(W.avail[mused-1]?1:0);
+
+    /* Step 4: ABR (capped by governor) */
+    let nl=1;
+    for(let k=1;k<=kmax;k++) if(this.delivered>=br[k-1]+CFG.video.margin) nl=k;
+    if(this.buf<CFG.video.buf_low) nl=Math.max(1,nl-1);
+    if(nl<this.level) this.downgrades++;
+    this.level=nl; this.vrate=br[this.level-1];
+    if(this.temp>CFG.glass.t_max) this.vrate=br[0];
+
+    /* Step 5: buffer */
+    this.buf=Math.min(CFG.video.buf_cap, Math.max(0, this.buf+dt*(this.delivered/this.vrate-1)));
+    this.stall=this.buf<=1e-9;
+
+    /* Step 6: power, temperature, battery */
+    const pw=glassPower(this.vrate, this.mode===1, this.fpsFrac);
+    const ppw=phonePower(mused);
+    this.energy+=pw*dt; this.phEnergy+=ppw*dt;
+    if(this.onCapsule){                                   // draw from capsule, recharge built-in
+      this.capsuleWh=Math.max(0, this.capsuleWh - pw*dt/3600);
+      this.glassBatt=Math.min(CFG.glass.batt_Wh, this.glassBatt + CFG.glass.charge_rate*dt);
+    } else {
+      this.glassBatt-=pw*dt/3600;
+      if(this.glassBatt<=0){ this.glassBatt=0; this.dead=true; this.deathT=t; }
+    }
+    this.phoneBatt=Math.max(0, this.phoneBatt - ppw*dt/3600);
+    this.temp=CFG.glass.t_amb+CFG.glass.th_a*(this.temp-CFG.glass.t_amb)+CFG.glass.th_b*pw;
+
+    /* Step 7: QoE (radio power computed directly so it is independent of the
+       frame-rate scaling applied to camera/encode above) */
+    const rr=this.vrate/ULTRA;
+    const pRad=(this.mode===1)?CFG.glass.p_cell35:(CFG.glass.p_wifi0+CFG.glass.p_wifi1*rr);
+    this.q=qoeScore(this.stall?0:this.vrate, this.stall, this.mode, pRad, ppw, this.temp, this.justSw, W.cx, this.fpsFrac);
+
+    /* accumulators (alive only) */
+    this.qSum+=this.q; this.qN++; this.aliveTime+=dt;
+    // quality-weighted useful airtime: SATURATING perceptual quality (caps at 1
+    // once the bitrate+frame-rate meet the scene's complexity-dependent need) per
+    // non-stalled second, so quality-seconds can never exceed alive time. Rewards
+    // "good picture for longer" — credits a static scene at low bitrate and low
+    // frame-rate (mechanism 6), but penalises judder if motion is misjudged.
+    this.usefulQ += (this.stall?0:satQ(this.vrate, this.fpsFrac, W.cx))*dt;
+    if(this.stall) this.stallTime+=dt;
+    if(this.temp>this.maxTemp) this.maxTemp=this.temp;
+    this.mused=mused;
+  }
+  avgQoE(){ return this.qN? this.qSum/this.qN : 0; }
+}
+
+/* ============================================================
+   Cinematic canvas helpers (rounded rects, frosted-glass panels,
+   soft glow). Shared by the realistic renderer below.
+   ============================================================ */
+const UI = '600 12px system-ui,"Segoe UI",Roboto,Helvetica,Arial';
+const UIb = '700 13px system-ui,"Segoe UI",Roboto,Helvetica,Arial';
+function rrect(c,x,y,w,h,r){ r=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);
+  c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r);
+  c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+function panel(c,x,y,w,h,o){ o=o||{}; const r=o.r==null?14:o.r;
+  c.save(); c.shadowColor='rgba(0,0,0,.5)'; c.shadowBlur=o.blur||20; c.shadowOffsetY=o.oy||9;
+  rrect(c,x,y,w,h,r); c.fillStyle=o.fill||'rgba(16,20,28,0.86)'; c.fill(); c.restore();
+  c.save(); rrect(c,x,y,w,h,r); c.clip();                       // inner top sheen
+  const g=c.createLinearGradient(0,y,0,y+h);
+  g.addColorStop(0,'rgba(255,255,255,0.10)'); g.addColorStop(.5,'rgba(255,255,255,0)');
+  c.fillStyle=g; c.fillRect(x,y,w,h); c.restore();
+  rrect(c,x,y,w,h,r); c.lineWidth=1; c.strokeStyle=o.border||'rgba(255,255,255,0.16)'; c.stroke();
+  if(o.accent){ c.save(); rrect(c,x,y,w,h,r); c.lineWidth=1.5; c.globalAlpha=.55; c.strokeStyle=o.accent; c.stroke(); c.restore(); }
+}
+function glow(c,x,y,r,col,a){ c.save(); const g=c.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,col); g.addColorStop(1,'rgba(0,0,0,0)'); c.globalAlpha=a==null?1:a;
+  c.fillStyle=g; c.beginPath(); c.arc(x,y,r,0,7); c.fill(); c.restore(); }
+function withAlpha(hex,a){ const n=parseInt(hex.slice(1),16); const r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  return 'rgba('+r+','+g+','+b+','+a+')'; }
+
+/* ============================================================
+   7. Game — time control, input, rendering, scoreboard.
+   ============================================================ */
+const G = {
+  cv:document.getElementById('cv'), ctx:null,
+  W:null, agents:[], running:false, paused:false, speed:1,
+  showMetrics:false, showStreams:false, over:false, scoreT:0, toasts:[], lastFrame:0,
+  cloudX:0, flags:{}, acc:0, capsule:false, SPEEDS:[1,10,60],
+  history:[], events:[], sampleEvery:1.0, nextSample:0,   // time-series recorder
+  FIELDS:['mode','rate_Mbps','vid_Mbps','buf_s','temp_C','glass_pct','phone_pct','capsule_pct','qoe','qoe_avg','stall_s','dead','qualsec'],
+
+  start(){ document.getElementById('intro').style.display='none'; this.restart(); },
+  restart(){
+    const seed=parseInt(document.getElementById('seedbox').value)||7;
+    this.W=new World(seed);
+    this.agents=POLICIES.map(p=>new Agent(p.id));
+    // full reset to the initial state (position, time, UI toggles)
+    this.over=false; this.scoreT=0; this.paused=false; this.speed=1;
+    this.showMetrics=false; this.showStreams=false; this.capsule=false; this.toasts=[]; this.flags={};
+    this.acc=0; this.cloudX=0; this.lastFrame=performance.now();
+    this.history=[]; this.events=[]; this.nextSample=0;
+    document.getElementById('report').style.display='none';
+    document.getElementById('hint').style.display='';   // re-show the one-time tip
+    document.getElementById('bPause').textContent='❚❚ PAUSE';
+    document.getElementById('bSpeed').textContent='▶ x1';
+    document.getElementById('bSpeed').classList.remove('on');
+    document.getElementById('bMetrics').classList.remove('on');
+    document.getElementById('bStreams').classList.remove('on');
+    document.getElementById('bCapsule').textContent='🔋 +CAPSULE';
+    document.getElementById('bCapsule').classList.remove('on');
+    if(!this.ctx){
+      this.cv.width=Math.round(960*DPR); this.cv.height=Math.round(540*DPR);  // HiDPI backing store
+      this.ctx=this.cv.getContext('2d'); this.ctx.setTransform(DPR,0,0,DPR,0,0); // draw in 960x540 logical units
+      this.bindInput(); this.loop();
+    }
+    this.running=true;
+  },
+  togglePause(){ this.paused=!this.paused;
+    document.getElementById('bPause').textContent=this.paused?'► RESUME':'❚❚ PAUSE'; },
+  toggleSpeed(){ const i=this.SPEEDS.indexOf(this.speed); this.speed=this.SPEEDS[(i+1)%this.SPEEDS.length];
+    document.getElementById('bSpeed').textContent={1:'▶ x1',10:'⏩ x10',60:'⏩⏩ x60'}[this.speed];
+    document.getElementById('bSpeed').classList.toggle('on',this.speed>1); },
+  toggleMetrics(){ this.showMetrics=!this.showMetrics;
+    document.getElementById('bMetrics').classList.toggle('on',this.showMetrics); },
+  toggleStreams(){ this.showStreams=!this.showStreams;
+    document.getElementById('bStreams').classList.toggle('on',this.showStreams); },
+  toggleCapsule(){ this.capsule=!this.capsule;
+    document.getElementById('bCapsule').textContent=this.capsule?'🔋 CAPSULE ON':'🔋 +CAPSULE';
+    document.getElementById('bCapsule').classList.toggle('on',this.capsule);
+    this.toast(this.capsule?'Rokid Power Capsule attached · glasses recharging'
+                          :'Power Capsule removed · back on built-in battery','#9fe8ff'); },
+  endGame(){ if(!this.over){ this.over=true; document.getElementById('report').style.display='flex'; } },
+
+  bindInput(){
+    this.cv.addEventListener('click',e=>{
+      if(this.over||!this.running) return;
+      const r=this.cv.getBoundingClientRect();
+      const sx=(e.clientX-r.left)*(960/r.width);   // CSS px -> 960x540 logical (backing store is HiDPI)
+      this.W.targetX=clip(this.screenToWorld(sx), -35, 24);
+      const h=document.getElementById('hint'); if(h) h.style.display='none'; // one-time tip
+    });
+    addEventListener('keydown',e=>{
+      if(e.code==='Space'){ e.preventDefault(); if(this.running)this.togglePause(); }
+      else if(e.key==='f'||e.key==='F') this.toggleSpeed();
+      else if(e.key==='m'||e.key==='M') this.toggleMetrics();
+      else if(e.key==='v'||e.key==='V') this.toggleStreams();
+      else if(e.key==='e'||e.key==='E') this.endGame();
+      else if(e.key==='r'||e.key==='R') this.restart();
+    });
+  },
+  toast(msg,col){ this.toasts.push({msg,col:col||'#ffd83d',t:6.5}); if(this.toasts.length>5)this.toasts.shift();
+    if(this.W) this.events.push({t:+this.W.t.toFixed(1), msg}); },   // also log as an event
+
+  /* sample every cfg.sampleEvery sim-seconds into the time-series record */
+  snapshot(){
+    const gW=CFG.glass.batt_Wh, pW=CFG.phone.batt_Wh, cW=CFG.glass.capsule_Wh;
+    this.history.push({ t:+this.W.t.toFixed(1), x:+this.W.x.toFixed(1), env:this.W.env(),
+      busy:this.W.busy?1:0, cpe:+(this.W.cpeCap/1e6).toFixed(2),
+      a:this.agents.map(a=>[ a.mode-1, +(a.delivered/1e6).toFixed(2), +(a.vrate/1e6).toFixed(2),
+        +a.buf.toFixed(2), +a.temp.toFixed(2), +(100*a.glassBatt/gW).toFixed(1),
+        +(100*a.phoneBatt/pW).toFixed(1), +(100*a.capsuleWh/cW).toFixed(1),
+        +a.q.toFixed(3), +a.avgQoE().toFixed(3), +a.stallTime.toFixed(1), a.dead?1:0, +a.usefulQ.toFixed(2) ]) });
+  },
+
+  /* ---- export: build rows shared by CSV / XLSX ---- */
+  tsHeader(){ const h=['t_s','x_m','env','cpe_busy','cpe_Mbps'];
+    POLICIES.forEach(p=>this.FIELDS.forEach(f=>h.push(p.key+'_'+f))); return h; },
+  tsRows(){ const rows=[this.tsHeader()];
+    for(const s of this.history){ const r=[s.t,s.x,s.env,s.busy,s.cpe];
+      s.a.forEach(arr=>arr.forEach(v=>r.push(v))); rows.push(r); } return rows; },
+  evRows(){ const rows=[['t_s','event']]; for(const e of this.events) rows.push([e.t,e.msg]); return rows; },
+  tag(){ return 'seed'+(this.W?this.W.seed:0)+'_'+(this.W?this.W.t.toFixed(0):0)+'s'; },
+
+  exportCSV(){ const rows=this.tsRows();
+    const csv='﻿'+rows.map(r=>r.map(v=>typeof v==='string'&&/[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v).join(',')).join('\r\n');
+    downloadBlob('ue_comimo_'+this.tag()+'.csv', new Blob([csv],{type:'text/csv;charset=utf-8'})); },
+
+  exportXLSX(){ const bytes=buildXLSX([
+      {name:'timeseries', rows:this.tsRows()},
+      {name:'events',     rows:this.evRows()}]);
+    downloadBlob('ue_comimo_'+this.tag()+'.xlsx',
+      new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})); },
+
+  exportReport(){ const html=buildReportHTML({
+      seed:this.W?this.W.seed:0, tEnd:this.W?+this.W.t.toFixed(0):0, sampleEvery:this.sampleEvery,
+      fields:this.FIELDS, policies:POLICIES.map(p=>({key:p.key,name:p.name,col:p.col})),
+      history:this.history, events:this.events });
+    downloadBlob('ue_comimo_report_'+this.tag()+'.html', new Blob([html],{type:'text/html;charset=utf-8'})); },
+
+  /* world<->screen mapping: x in [-35,24] m -> [120,900] px */
+  worldToScreen(x){ return 120 + (x+35)*(780/59); },
+  screenToWorld(sx){ return (sx-120)*(59/780) - 35; },
+
+  loop(){
+    requestAnimationFrame(()=>this.loop());
+    const now=performance.now(); let wall=(now-this.lastFrame)/1000; this.lastFrame=now;
+    if(wall>0.25) wall=0.25;                     // clamp after tab-switches
+    const live = this.running && !this.paused && !this.over;
+    this.cloudX += (live?wall:0) * {1:6,10:28,60:70}[this.speed];
+    if(live){
+      // fixed-timestep accumulator: carry the fractional remainder so x1
+      // (≈0.017 s/frame) still advances dt=0.1 s steps smoothly.
+      this.acc += wall*this.speed;
+      let steps=Math.min(Math.floor(this.acc/CFG.dt), 700);
+      this.acc -= steps*CFG.dt;
+      for(let s=0;s<steps;s++){ this.W.step(); for(const a of this.agents) a.step(this.W); this.checkEvents();
+        if(this.W.t>=this.nextSample){ this.snapshot(); this.nextSample+=this.sampleEvery; } }
+      for(const t of this.toasts) t.t-=wall;   // captions only age while running (freeze on pause)
+      this.toasts=this.toasts.filter(t=>t.t>0);
+    } else this.acc=0;
+    if(this.over){ this.scoreT=Math.min(1,this.scoreT+wall*2.2); }
+    this.render();
+  },
+
+  checkEvents(){
+    const W=this.W;
+    if(!this.flags.indoor && W.env()===2){ this.flags.indoor=true;
+      this.toast('INDOOR · shared CPE available','#9fe8ff'); }
+    if(this.flags.indoor && W.env()!==2) this.flags.indoor=false;
+    const P=this.agents[3];
+    if(P.govOn && !this.flags.gov){ this.flags.gov=true;
+      this.toast('P: GOVERNOR ON · bitrate capped, glasses cooling','#9fe8ff'); }
+    if(!P.govOn) this.flags.gov=false;
+    // RF dead-zone: macro 3.5/700 blocked. A/B (cellular-only) stall here; the
+    // CPE-delegated creators (C, P) stream straight through.
+    const inDz=CFG.deadzone.enable && W.x>=CFG.deadzone.x0 && W.x<=CFG.deadzone.x1;
+    if(inDz && !this.flags.dz){ this.flags.dz=true;
+      this.toast('RF DEAD-ZONE · macro 3.5/700 blocked · only CPE-delegated creators survive','#ff8a6e'); }
+    if(!inDz) this.flags.dz=false;
+    // only announce on a GENUINELY static scene, with hysteresis (0.25/0.40) so
+    // prediction-noise jitter near the threshold can't re-fire the toast.
+    if((P.cxSave||P.fpsSave) && W.cx<0.25 && !this.flags.cx){ this.flags.cx=true;
+      this.toast('P: STATIC SCENE · lower bitrate + frame-rate, same picture, glasses last longer','#bff5c8'); }
+    if(W.cx>0.40) this.flags.cx=false;
+    if(W.busy && !this.flags.busy){ this.flags.busy=true;
+      this.toast('CPE BUSY · other users · P/E escalate to M3 split','#ff8a6e'); }
+    if(!W.busy) this.flags.busy=false;
+    for(const a of this.agents){
+      const k=POLICIES[a.pid-1].key;
+      if(a.dead && !this.flags['d'+k]){ this.flags['d'+k]=true;
+        this.toast('Creator '+k+' GLASSES DEAD · battery empty','#ff5340'); }
+      if(a.temp>CFG.glass.t_safe && !this.flags['h'+k]){ this.flags['h'+k]=true;
+        this.toast('Creator '+k+' glasses over 42°C','#ff8a6e'); }
+      if(a.temp<=CFG.glass.t_safe) this.flags['h'+k]=false;
+    }
+    // all creators out of power -> end the game automatically
+    if(!this.over && this.agents.every(a=>a.dead)){
+      this.toast('All creators out of power — GAME OVER','#ff5340'); this.endGame();
+    }
+  },
+
+  /* ---------------- rendering ---------------- */
+  render(){
+    const x=this.ctx, W=this.W; x.clearRect(0,0,960,540);
+    x.textBaseline='alphabetic';
+    this.drawSky(x); this.drawBuilding(x); this.drawGround(x);
+    this.drawGNB(x); this.drawCPE(x); this.drawDeadzone(x); this.drawPlayers(x);
+    // cinematic vignette over the scene (UI panels drawn on top, unaffected)
+    const vg=x.createRadialGradient(480,250,170,480,280,580);
+    vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(3,6,12,0.40)');
+    x.fillStyle=vg; x.fillRect(0,0,960,540);
+    this.drawTempPanel(x); this.drawHUD(x); this.drawLegend(x); this.drawToasts(x);
+    if(this.showStreams) this.drawStreams(x);
+    if(this.showMetrics) this.drawMetrics(x);
+    if(this.over) this.drawScore(x);
+  },
+  px(s){ this.ctx.fillStyle=s; },
+  rect(x,a,b,w,h){ x.fillRect(a,b,w,h); },
+
+  drawSky(x){
+    const hor=452;
+    // graded sky: deep zenith -> warm hazy horizon
+    const g=x.createLinearGradient(0,0,0,hor);
+    g.addColorStop(0,'#1f4e86'); g.addColorStop(0.45,'#3f7fbe'); g.addColorStop(0.8,'#9cc4e6'); g.addColorStop(1,'#e6ecdf');
+    x.fillStyle=g; x.fillRect(0,0,960,hor);
+    // sun + bloom (upper-left, lighting the whole scene)
+    glow(x,150,96,180,'rgba(255,240,200,0.55)',1);
+    glow(x,150,96,70,'rgba(255,250,235,0.95)',1);
+    x.fillStyle='#fffaf0'; x.beginPath(); x.arc(150,96,20,0,7); x.fill();
+    // distant parallax skyline (cool, hazy)
+    x.save();
+    for(let layer=0;layer<2;layer++){
+      const depth=layer===0?0.4:0.8, baseY=hor-(layer===0?56:30);
+      x.fillStyle=layer===0?'rgba(120,150,185,0.55)':'rgba(95,125,165,0.8)';
+      const shift=(this.cloudX*depth*0.3)%80;
+      for(let i=-1;i<14;i++){ const bx=i*78 - shift; const seed=((i*7+layer*3)%5);
+        const bh=(layer===0?40:70)+seed*12; x.fillRect(bx,baseY-bh,54,bh); }
+    }
+    x.restore();
+    // soft clouds (blurred, drifting)
+    x.save(); x.shadowColor='rgba(255,255,255,0.85)'; x.shadowBlur=22;
+    const cx=(off)=>((this.cloudX*0.5+off)%1180)-160;
+    [[200,80,120,0.9],[470,52,90,0.7],[760,98,150,0.85]].forEach(([bx,by,bw,al])=>{
+      const c=cx(bx); x.fillStyle='rgba(255,255,255,'+al+')';
+      x.beginPath(); x.ellipse(c,by,bw*0.5,15,0,0,7); x.fill();
+      x.beginPath(); x.ellipse(c+bw*0.22,by-9,bw*0.3,12,0,0,7); x.fill(); });
+    x.restore();
+    // atmospheric haze just above the ground
+    const hz=x.createLinearGradient(0,hor-70,0,hor);
+    hz.addColorStop(0,'rgba(232,236,223,0)'); hz.addColorStop(1,'rgba(236,240,228,0.7)');
+    x.fillStyle=hz; x.fillRect(0,hor-70,960,70);
+  },
+  drawGround(x){
+    const hor=452;
+    // paved plaza: receding gradient (far lighter -> near darker)
+    const g=x.createLinearGradient(0,hor,0,540);
+    g.addColorStop(0,'#8d9099'); g.addColorStop(0.18,'#6f727b'); g.addColorStop(1,'#34373d');
+    x.fillStyle=g; x.fillRect(0,hor,960,540-hor);
+    // curb highlight at the horizon line
+    x.fillStyle='rgba(255,255,255,0.18)'; x.fillRect(0,hor,960,2);
+    x.fillStyle='rgba(0,0,0,0.25)'; x.fillRect(0,hor+2,960,2);
+    // perspective paving seams converging to a vanishing point
+    const vx=560, vy=hor;
+    x.strokeStyle='rgba(20,22,26,0.35)'; x.lineWidth=1;
+    for(let i=-12;i<=12;i++){ const fx=vx+i*120; x.beginPath(); x.moveTo(vx,vy); x.lineTo(fx,540); x.stroke(); }
+    // horizontal paving lines (closer = farther apart)
+    for(let k=1;k<=5;k++){ const f=k/5, yy=hor+(540-hor)*f*f;
+      x.strokeStyle='rgba(20,22,26,'+(0.10+0.12*f)+')'; x.beginPath(); x.moveTo(0,yy); x.lineTo(960,yy); x.stroke(); }
+    // soft specular sheen sweeping the floor (subtle, cinematic)
+    const sh=x.createLinearGradient(220,hor,520,540);
+    sh.addColorStop(0,'rgba(255,255,255,0)'); sh.addColorStop(0.5,'rgba(255,255,255,0.06)'); sh.addColorStop(1,'rgba(255,255,255,0)');
+    x.fillStyle=sh; x.fillRect(0,hor,960,540-hor);
+  },
+  drawGNB(x){
+    const cx=58, topY=150, baseY=458;
+    // signal arcs (behind the mast), three expanding rings
+    for(let k=0;k<3;k++){ const ph=((this.W.t*0.8+k/3)%1); const rr=18+ph*150;
+      x.strokeStyle='rgba(120,200,255,'+(0.45*(1-ph))+')'; x.lineWidth=2.5;
+      x.beginPath(); x.arc(cx,topY+8,rr,-Math.PI*0.85,-Math.PI*0.15); x.stroke(); }
+    // lattice mast (tapered, two legs + cross-bracing) with metallic shading
+    const topHalf=7, botHalf=20;
+    const lx=t=>cx-(topHalf+(botHalf-topHalf)*t), rx=t=>cx+(topHalf+(botHalf-topHalf)*t);
+    x.strokeStyle='#3a3e46'; x.lineWidth=4;
+    x.beginPath(); x.moveTo(lx(0),topY); x.lineTo(lx(1),baseY); x.moveTo(rx(0),topY); x.lineTo(rx(1),baseY); x.stroke();
+    x.strokeStyle='#5b616b'; x.lineWidth=2;
+    for(let i=0;i<12;i++){ const t0=i/12,t1=(i+1)/12, y0=topY+(baseY-topY)*t0, y1=topY+(baseY-topY)*t1;
+      x.beginPath(); x.moveTo(lx(t0),y0); x.lineTo(rx(t1),y1); x.moveTo(rx(t0),y0); x.lineTo(lx(t1),y1); x.stroke(); }
+    // top platform + 3 sector antenna panels (metallic gradient)
+    const pg=x.createLinearGradient(cx-26,0,cx+26,0);
+    pg.addColorStop(0,'#cfd4db'); pg.addColorStop(0.5,'#eef1f5'); pg.addColorStop(1,'#aeb4bd');
+    [[-22,-8],[ -4,-14],[14,-8]].forEach(([dx,dy])=>{ x.save(); x.shadowColor='rgba(0,0,0,.4)'; x.shadowBlur=6; x.shadowOffsetY=3;
+      rrect(x,cx+dx,topY+dy,12,30,2); x.fillStyle=pg; x.fill(); x.restore(); });
+    // equipment cabinet at the base
+    x.save(); x.shadowColor='rgba(0,0,0,.4)'; x.shadowBlur=8; x.shadowOffsetY=4;
+    rrect(x,cx-24,baseY-30,48,30,4); const cg=x.createLinearGradient(0,baseY-30,0,baseY);
+    cg.addColorStop(0,'#5b606a'); cg.addColorStop(1,'#3a3e46'); x.fillStyle=cg; x.fill(); x.restore();
+    x.fillStyle='rgba(255,255,255,0.12)'; x.fillRect(cx-24,baseY-30,48,3);
+    // blinking aviation light
+    if((this.W.t*1.5)%1>0.5){ glow(x,cx,topY-16,12,'rgba(255,70,60,0.9)',1); }
+    x.fillStyle='#ff5340'; x.beginPath(); x.arc(cx,topY-16,3,0,7); x.fill();
+    // label chip
+    panel(x,cx-46,baseY+6,92,18,{r:9,blur:8,oy:3,fill:'rgba(16,20,28,0.9)'});
+    x.fillStyle='#cfe0f2'; x.font=UI; x.textAlign='center'; x.fillText('gNB · 3.5G / 700M',cx,baseY+19);
+  },
+  drawBuilding(x){
+    const ex=Math.round(this.worldToScreen(0));   // entrance screen-x
+    const bx=ex, bw=960-ex, top=120, gnd=452, indoor=this.W.env()===2;
+    x.save(); x.shadowColor='rgba(0,0,0,0.45)'; x.shadowBlur=24; x.shadowOffsetX=-10;
+    // concrete structure
+    const cg=x.createLinearGradient(bx,0,960,0); cg.addColorStop(0,'#8b8f97'); cg.addColorStop(1,'#6c707a');
+    x.fillStyle=cg; x.fillRect(bx,top,bw,gnd-top); x.restore();
+    // parapet / roof slab
+    x.fillStyle='#5a5e67'; x.fillRect(bx-14,top-16,bw+14,18);
+    x.fillStyle='rgba(255,255,255,0.10)'; x.fillRect(bx-14,top-16,bw+14,3);
+    // glass curtain wall inset
+    const gx0=bx+14, gy0=top+14, gw=960-gx0-12, gh=gnd-gy0-6;
+    const glass=x.createLinearGradient(0,gy0,0,gy0+gh);
+    glass.addColorStop(0,'#bfe0f2'); glass.addColorStop(0.42,'#7fa9cf');     // sky reflection
+    glass.addColorStop(0.45, indoor?'#3a4a64':'#2b3850'); glass.addColorStop(1, indoor?'#202a3c':'#1a2230'); // interior
+    x.fillStyle=glass; x.fillRect(gx0,gy0,gw,gh);
+    // diagonal reflection streaks on the upper glass
+    x.save(); x.beginPath(); x.rect(gx0,gy0,gw,gh*0.45); x.clip();
+    x.strokeStyle='rgba(255,255,255,0.18)'; x.lineWidth=10;
+    for(let i=-2;i<8;i++){ const sx=gx0+i*70 + (this.cloudX*0.05)%70; x.beginPath(); x.moveTo(sx,gy0); x.lineTo(sx+90,gy0+gh*0.45); x.stroke(); }
+    x.restore();
+    // interior warm glow when indoors (rooms lit)
+    if(indoor){ for(let r=0;r<3;r++)for(let c=0;c<Math.floor(gw/74);c++){
+      if(((r*5+c*3)%4)===0) glow(x, gx0+38+c*74, gy0+gh*0.62+r*30, 34, 'rgba(255,210,140,0.22)',1); } }
+    // mullion grid (window frames)
+    x.strokeStyle='rgba(30,36,48,0.55)'; x.lineWidth=2;
+    for(let mx=gx0; mx<=gx0+gw+1; mx+=74){ x.beginPath(); x.moveTo(mx,gy0); x.lineTo(mx,gy0+gh); x.stroke(); }
+    for(let my=gy0; my<=gy0+gh+1; my+=46){ x.beginPath(); x.moveTo(gx0,my); x.lineTo(gx0+gw,my); x.stroke(); }
+    // entrance: full-height dark glass doors with lit lobby
+    const dw=58, dx=gx0+6;
+    glow(x, dx+dw/2, gnd-40, 60, indoor?'rgba(255,220,160,0.5)':'rgba(180,210,240,0.35)',1);
+    const dg=x.createLinearGradient(0,gy0,0,gnd); dg.addColorStop(0,'#243246'); dg.addColorStop(1, indoor?'#6b5836':'#0f1620');
+    x.fillStyle=dg; x.fillRect(dx,gy0+gh-150,dw,150);
+    x.strokeStyle='rgba(255,255,255,0.25)'; x.lineWidth=2; x.strokeRect(dx,gy0+gh-150,dw,150);
+    x.beginPath(); x.moveTo(dx+dw/2,gy0+gh-150); x.lineTo(dx+dw/2,gnd); x.stroke();
+    // backlit venue sign (kept on the left of the facade, clear of the temp panel)
+    const sgx=bx+74;
+    panel(x,sgx-64,top-12,128,26,{r:6,blur:14,oy:0,fill:'rgba(20,26,38,0.92)',accent:'#7fd0ff'});
+    x.fillStyle='#cfe9ff'; x.font='700 13px system-ui'; x.textAlign='center';
+    x.fillText('INDOOR VENUE', sgx, top+5);
+    // O2I penetration seam + tag while crossing
+    glow(x, ex, 300, 26, 'rgba(255,90,70,0.22)',1);
+    if(this.W.x>=-3 && this.W.x<=7){
+      panel(x,ex-46,236,92,20,{r:10,blur:8,oy:2,fill:'rgba(40,16,16,0.92)',accent:'#ff5340'});
+      x.fillStyle='#ff8a78'; x.font=UIb; x.textAlign='center'; x.fillText('WALL −28 dB',ex,250); }
+  },
+  drawCPE(x){
+    if(!this.W.cpeAvail()) return;
+    const cx=620, cy=210, busy=this.W.busy;
+    const accent=busy?'#ff6a52':'#34d77a';
+    // signal waves above the unit
+    for(let k=0;k<3;k++){ const ph=((this.W.t*1.2+k/3)%1); const rr=12+ph*40;
+      x.strokeStyle=withAlpha(busy?'#ff6a52':'#7fe0ff',0.5*(1-ph)); x.lineWidth=2;
+      x.beginPath(); x.arc(cx,cy-6,rr,-Math.PI*0.8,-Math.PI*0.2); x.stroke(); }
+    glow(x,cx,cy+8,46,withAlpha(busy?'#ff6a52':'#34d77a',0.28),1);
+    // twin antennas
+    x.strokeStyle='#2a2e36'; x.lineWidth=3; x.lineCap='round';
+    x.beginPath(); x.moveTo(cx-14,cy-2); x.lineTo(cx-20,cy-22); x.moveTo(cx+14,cy-2); x.lineTo(cx+20,cy-22); x.stroke(); x.lineCap='butt';
+    // body (glossy white, rounded)
+    x.save(); x.shadowColor='rgba(0,0,0,0.4)'; x.shadowBlur=10; x.shadowOffsetY=5;
+    rrect(x,cx-30,cy,60,28,7); const bg=x.createLinearGradient(0,cy,0,cy+28);
+    bg.addColorStop(0,'#ffffff'); bg.addColorStop(1,'#cdd2da'); x.fillStyle=bg; x.fill(); x.restore();
+    rrect(x,cx-30,cy,60,28,7); x.strokeStyle='rgba(0,0,0,0.15)'; x.lineWidth=1; x.stroke();
+    // status LED + pulse
+    glow(x,cx,cy+14,7,withAlpha(accent,0.9),1);
+    x.fillStyle=accent; x.beginPath(); x.arc(cx,cy+14,3.2,0,7); x.fill();
+    // queued background users when busy
+    if(busy){ this.W.passers.forEach((p,i)=>{ const ux=cx+40+i*16, uy=cy+6;
+      x.fillStyle='rgba(40,46,58,0.9)'; rrect(x,ux,uy,11,18,3); x.fill();
+      x.fillStyle='#caa07a'; x.beginPath(); x.arc(ux+5.5,uy-3,4,0,7); x.fill(); }); }
+    // label card below
+    const cap=(this.W.cpeCap/1e6).toFixed(0);
+    panel(x,cx-58,cy+34,116,34,{r:9,blur:8,oy:3,accent:accent});
+    x.fillStyle='#eaf1f8'; x.font=UIb; x.textAlign='center'; x.fillText('SHARED CPE',cx,cy+48);
+    x.fillStyle=busy?'#ff8a78':'#9fe8c8'; x.font=UI;
+    x.fillText((busy?'BUSY · ':'')+cap+' Mbps free',cx,cy+62);
+  },
+  drawDeadzone(x){
+    if(!CFG.deadzone.enable) return;
+    const xa=this.worldToScreen(CFG.deadzone.x0), xb=this.worldToScreen(CFG.deadzone.x1);
+    const top=130, gnd=452, w=xb-xa, here=this.W.x>=CFG.deadzone.x0 && this.W.x<=CFG.deadzone.x1;
+    // red hazard wash + diagonal stripes (brighter while the cluster is inside it)
+    x.save(); x.beginPath(); x.rect(xa,top,w,gnd-top); x.clip();
+    x.fillStyle='rgba(255,60,40,'+(here?0.20:0.12)+')'; x.fillRect(xa,top,w,gnd-top);
+    x.strokeStyle='rgba(255,90,60,'+(here?0.26:0.16)+')'; x.lineWidth=9;
+    for(let i=-3;i<26;i++){ const sx=xa+i*20; x.beginPath(); x.moveTo(sx,top); x.lineTo(sx+(gnd-top),gnd); x.stroke(); }
+    x.restore();
+    // dashed edges + a "no signal" crossed-out tower glyph in the middle
+    x.strokeStyle='rgba(255,90,60,0.6)'; x.setLineDash([6,5]); x.lineWidth=1.5;
+    x.beginPath(); x.moveTo(xa,top); x.lineTo(xa,gnd); x.moveTo(xb,top); x.lineTo(xb,gnd); x.stroke(); x.setLineDash([]);
+    const cxm=(xa+xb)/2, cym=300;
+    panel(x,cxm-70,cym-22,140,44,{r:9,blur:8,oy:2,fill:'rgba(40,12,10,0.92)',accent:'#ff5340'});
+    x.fillStyle='#ff8a78'; x.font='700 12px system-ui'; x.textAlign='center'; x.fillText('📵 RF DEAD-ZONE',cxm,cym-2);
+    x.fillStyle='#ffd1c8'; x.font='600 9px system-ui'; x.fillText('macro 3.5 / 700 blocked · CPE only',cxm,cym+12);
+  },
+  drawPlayers(x){
+    const cx=this.worldToScreen(this.W.x);
+    // "you control here": a soft vertical light beam
+    const beam=x.createLinearGradient(0,300,0,452);
+    beam.addColorStop(0,'rgba(255,255,255,0)'); beam.addColorStop(1,'rgba(255,255,255,0.10)');
+    x.fillStyle=beam; x.fillRect(cx-16,300,32,152);
+    const off=[-66,-22,22,66];   // 4 creators, wider apart (room for the battery icon)
+    this.agents.forEach((a,i)=>{
+      const P=POLICIES[i], gx=cx+off[i], gy=452;
+      const qcol=a.dead?'#6b7280':(a.stall?'#ff5340':(a.vrate>=15e6?'#3ddc55':'#ffb02e'));
+      // ground contact shadow
+      x.save(); x.fillStyle='rgba(0,0,0,0.32)'; x.beginPath(); x.ellipse(gx,gy+3,15,4.5,0,0,7); x.fill(); x.restore();
+
+      // ---- floating UI above the figure ----
+      // bitrate bar (vertical, rounded, glowing, 2 px/Mbps)
+      const bh=a.dead?2:Math.max(2,(a.vrate/1e6)*2), barX=gx-3, barTop=gy-72-bh;
+      x.fillStyle='rgba(10,14,20,0.5)'; rrect(x,barX,gy-72-50,6,50,3); x.fill();   // track
+      if(!a.dead && !a.stall){ glow(x,gx,barTop+bh/2,10,withAlpha(qcol,0.5),1); }
+      x.fillStyle=qcol; rrect(x,barX,barTop,6,bh,3); x.fill();
+      // mode chip
+      const mc=a.dead?'#ff5340':(a.mode>=4?'#7fe0ff':'#e8eef5');
+      panel(x,gx-14,gy-130,28,15,{r:7,blur:5,oy:1,fill:'rgba(14,18,26,0.9)'});
+      x.fillStyle=mc; x.font='700 10px system-ui'; x.textAlign='center';
+      x.fillText(a.dead?'OFF':('M'+(a.mode-1)),gx,gy-119);
+      // ---- glass battery icon (left of figure): clear battery shape so the
+      //      charge state reads at a glance — terminal nub, shell, bottom-up fill,
+      //      % label, lightning bolt while on the capsule, red pulse when critical.
+      const bf=clip(a.glassBatt/CFG.glass.batt_Wh,0,1);
+      const crit=bf<=0.15 && !a.onCapsule, pulse=crit && Math.floor(this.W.t*3)%2===0;
+      const bcol=a.onCapsule?'#36d6ff':(bf>0.4?'#3ddc55':(bf>0.15?'#ffb02e':'#ff5340'));
+      const bW=11, bH=30, bx=gx-33, by=gy-66, bcx=bx+bW/2;
+      x.fillStyle='#cfd6e0'; rrect(x,bcx-2.5,by-3.5,5,3.5,1); x.fill();                 // + terminal nub
+      x.fillStyle='rgba(8,11,17,0.88)'; rrect(x,bx,by,bW,bH,3); x.fill();               // shell
+      if(!crit && !a.onCapsule && bf>0){ glow(x,bcx,by+bH-2-(bH-4)*bf/2,9,withAlpha(bcol,0.35),1); }
+      const pad=2, fillH=(bH-2*pad)*bf;                                                 // charge fill (bottom-up)
+      const fg=x.createLinearGradient(0,by+bH-pad-fillH,0,by+bH-pad);
+      fg.addColorStop(0,bcol); fg.addColorStop(1,withAlpha(bcol,0.65));
+      x.fillStyle=fg; rrect(x,bx+pad,by+bH-pad-fillH,bW-2*pad,Math.max(0,fillH),1.4); x.fill();
+      x.lineWidth=1.4; x.strokeStyle=pulse?'#ff5340':(a.onCapsule?'#7fe4ff':'rgba(220,228,238,0.85)');
+      rrect(x,bx,by,bW,bH,3); x.stroke();                                               // outline
+      if(a.onCapsule){ glow(x,bcx,by+bH/2,9,'rgba(54,214,255,0.75)',1);
+        x.fillStyle='#06222e'; x.font='700 12px system-ui'; x.textAlign='center'; x.fillText('⚡',bcx,by+bH/2+4.5); }
+      x.fillStyle=pulse?'#ff8a78':(a.dead?'#8a8d94':'#b6c0cc');
+      x.font='700 9px system-ui'; x.textAlign='center'; x.fillText(Math.round(bf*100)+'%',bcx,by+bH+10);
+
+      // ---- the person (shaded, lit from the sun upper-left) ----
+      const headHot=a.temp>CFG.glass.t_safe && !a.dead;
+      if(headHot){ glow(x,gx,gy-50,22,'rgba(255,70,40,0.7)',1); }
+      // legs
+      const legG=x.createLinearGradient(0,gy-20,0,gy); legG.addColorStop(0,'#2c3550'); legG.addColorStop(1,'#1a2030');
+      x.fillStyle=a.dead?'#3a3d44':legG; rrect(x,gx-8,gy-21,7,21,2.5); x.fill(); rrect(x,gx+1,gy-21,7,21,2.5); x.fill();
+      // torso / jacket (policy colour, shaded)
+      const baseCol=a.dead?'#5a5e66':P.col;
+      const tj=x.createLinearGradient(gx-11,gy-44,gx+11,gy-18);
+      tj.addColorStop(0,baseCol); tj.addColorStop(1,'rgba(0,0,0,0.35)');
+      x.save(); x.shadowColor='rgba(0,0,0,0.35)'; x.shadowBlur=6; x.shadowOffsetY=3;
+      rrect(x,gx-11,gy-45,22,27,6); x.fillStyle=baseCol; x.fill(); x.restore();
+      x.fillStyle=tj; rrect(x,gx-11,gy-45,22,27,6); x.fill();
+      // sun rim light on the left shoulder
+      x.fillStyle='rgba(255,245,225,0.35)'; rrect(x,gx-11,gy-45,4,27,3); x.fill();
+      if(P.key==='P'){ x.save(); glow(x,gx,gy-34,30,'rgba(255,216,61,0.28)',1);
+        rrect(x,gx-12,gy-46,24,29,7); x.strokeStyle='#ffd83d'; x.lineWidth=2; x.stroke(); x.restore(); }
+      // key on the chest
+      x.fillStyle='#fff'; x.font='700 12px system-ui'; x.textAlign='center'; x.fillText(P.key,gx,gy-27);
+      // neck + head with skin shading
+      x.fillStyle='#c79b76'; x.fillRect(gx-3,gy-49,6,5);
+      const sk=x.createRadialGradient(gx-3,gy-56,1,gx,gy-52,9);
+      sk.addColorStop(0,'#f0c69a'); sk.addColorStop(1,'#c98f63');
+      x.fillStyle=a.dead?'#8a8d94':sk; x.beginPath(); x.arc(gx,gy-53,7,0,7); x.fill();
+      // hair
+      x.fillStyle=a.dead?'#6b6e75':'#3a2a1c'; x.beginPath(); x.arc(gx,gy-55,7,Math.PI*1.05,Math.PI*1.95); x.fill();
+      // AI glasses: dark frame + cyan lens glint
+      x.fillStyle='#14181f'; rrect(x,gx-7,gy-55,14,5,2); x.fill();
+      x.fillStyle='rgba(120,225,255,0.85)'; x.fillRect(gx-6,gy-54,4,2); x.fillRect(gx+2,gy-54,4,2);
+      // status marks
+      if(a.dead){ x.fillStyle='#ff5340'; x.font='700 13px system-ui'; x.textAlign='center'; x.fillText('☠',gx,gy-150); }
+      else if(a.stall && Math.floor(this.W.t*3)%2===0){
+        panel(x,gx-22,gy-160,44,16,{r:8,blur:6,oy:1,fill:'rgba(60,16,16,0.92)',accent:'#ff5340'});
+        x.fillStyle='#ff8a78'; x.font='700 10px system-ui'; x.textAlign='center'; x.fillText('STALL',gx,gy-149); }
+      if(a.mode===5 && !a.dead){ x.fillStyle='#bcd2ff'; x.font='700 12px system-ui'; x.textAlign='center'; x.fillText('z',gx+15,gy-150); }
+      if(!a.dead && (a.govOn||a.battSave||a.thermSave)){
+        const lbl=a.battSave?'BAT':(a.thermSave?'HOT':'GOV'), col=a.battSave?'#ffb02e':(a.thermSave?'#ff7a5c':'#7fe0ff');
+        panel(x,gx-16,gy-178,32,15,{r:7,blur:5,oy:1,fill:'rgba(14,18,26,0.92)',accent:col});
+        x.fillStyle=col; x.font='700 9px system-ui'; x.textAlign='center'; x.fillText(lbl,gx,gy-167); }
+    });
+  },
+  drawTempPanel(x){
+    const px=738,py=62,w=210,h=152;
+    panel(x,px,py,w,h,{accent:'#ff7a5c'});
+    x.fillStyle='#ffd9a0'; x.font=UIb; x.textAlign='center'; x.fillText('AI-GLASS TEMP',px+w/2,py+18);
+    const base=py+h-26, scale=4;
+    const ly=base-(CFG.glass.t_safe-30)*scale;
+    x.strokeStyle='rgba(255,83,64,0.85)'; x.setLineDash([5,4]); x.lineWidth=1.5;
+    x.beginPath(); x.moveTo(px+10,ly); x.lineTo(px+w-10,ly); x.stroke(); x.setLineDash([]);
+    x.fillStyle='#ff8a78'; x.font='600 9px system-ui'; x.textAlign='right'; x.fillText('42 °C limit',px+w-12,ly-4);
+    const show=[0,2,3], bw=30;   // A (overheats), C (ablation, overheats), P (governed)
+    show.forEach((idx,k)=>{ const a=this.agents[idx], P=POLICIES[idx];
+      const bx=px+34+k*56, hh=Math.max(3,(a.temp-30)*scale), hot=a.temp>CFG.glass.t_safe;
+      if(hot) glow(x,bx+bw/2,base-hh,16,'rgba(255,70,40,0.5)',1);
+      const bg=x.createLinearGradient(0,base-hh,0,base);
+      bg.addColorStop(0, hot?'#ff6a52':withAlpha(P.col,0.95)); bg.addColorStop(1, hot?'#b8301f':withAlpha(P.col,0.5));
+      x.fillStyle=bg; rrect(x,bx,base-hh,bw,hh,3); x.fill();
+      x.fillStyle='#cfd6e0'; x.font='600 10px system-ui'; x.textAlign='center'; x.fillText(P.key,bx+bw/2,base+13);
+      x.fillStyle=hot?'#ff8a78':'#eaf1f8'; x.font='700 10px system-ui'; x.fillText(a.temp.toFixed(0)+'°',bx+bw/2,base-hh-4); });
+  },
+  drawHUD(x){
+    panel(x,14,12,176,32,{accent:'#7fd0ff'});
+    x.fillStyle='#aeb8c6'; x.font=UI; x.textAlign='left'; x.fillText('t',26,32);
+    x.fillStyle='#ffd9a0'; x.font='700 16px system-ui'; x.fillText(this.W.t.toFixed(0).padStart(3)+'s',40,33);
+    x.fillStyle='#7fd0ff'; x.font=UI; x.textAlign='right'; x.fillText({1:'▶ 1×',10:'▶▶ 10×',60:'▶▶ 60×'}[this.speed],182,32);
+    const envs=['OUTDOOR','DOORWAY','INDOOR'];
+    panel(x,14,48,176,24,{r:10});
+    x.fillStyle='#cfe0f2'; x.font=UI; x.textAlign='left';
+    x.fillText('env: '+envs[this.W.env()]+'   x = '+this.W.x.toFixed(0)+' m',26,64);
+    // SCENE complexity + P's adaptive savings (mechanisms 5 & 6 made visible)
+    const cy=76; panel(x,14,cy,176,44,{r:10,accent:'#bff5c8'});
+    x.fillStyle='#aeb8c6'; x.font=UI; x.textAlign='left'; x.fillText('SCENE',26,cy+16);
+    const bx0=70,bw=108,by=cy+6,bh=9, cxv=Math.max(0,Math.min(1,this.W.cx));
+    x.fillStyle='rgba(255,255,255,0.12)'; rrect(x,bx0,by,bw,bh,4); x.fill();
+    x.fillStyle='rgb('+Math.round(70+175*cxv)+','+Math.round(220-150*cxv)+',110)';
+    rrect(x,bx0,by,Math.max(bh,bw*cxv),bh,4); x.fill();
+    const P=this.agents[3];
+    x.fillStyle='#cfe0f2'; x.font='600 11px system-ui'; x.textAlign='left';
+    x.fillText('P  '+(P.vrate/1e6).toFixed(0)+'M · '+Math.round(P.fpsFrac*30)+'fps',26,cy+36);
+    if(P.cxSave||P.fpsSave){ x.fillStyle='#bff5c8'; x.font='700 10px system-ui'; x.textAlign='right';
+      x.fillText('⚡ SAVING',182,cy+36); }
+    if(this.capsule){ const lo=Math.min(...this.agents.map(a=>a.capsuleWh));
+      panel(x,14,124,176,24,{r:10,accent:'#36d6ff'});
+      x.fillStyle='#7fe4ff'; x.textAlign='left'; x.fillText('+ CAPSULE  '+(100*lo/CFG.glass.capsule_Wh).toFixed(0)+'% min',26,140); }
+  },
+  drawLegend(x){
+    const g=x.createLinearGradient(0,514,0,540); g.addColorStop(0,'rgba(10,13,20,0)'); g.addColorStop(0.5,'rgba(10,13,20,0.82)');
+    x.fillStyle=g; x.fillRect(0,510,960,30);
+    x.font=UI; x.textAlign='left'; let lx=14;
+    POLICIES.forEach(P=>{ glow(x,lx+5,527,7,withAlpha(P.col,0.7),1);
+      x.fillStyle=P.col; rrect(x,lx,522,11,11,3); x.fill(); lx+=18;
+      x.fillStyle='#c4ccd6'; const lbl=P.key+' '+(P.key==='P'?'PROPOSED':P.name.split(',')[0].split(':')[0]);
+      x.fillText(lbl,lx,531); lx+=x.measureText(lbl).width+16; });
+  },
+  drawToasts(x){
+    x.textAlign='center'; x.font=UIb;
+    this.toasts.forEach((t,i)=>{ const a=Math.min(1,t.t), y=96+i*28;
+      x.globalAlpha=a; const w=x.measureText(t.msg).width+28;
+      panel(x,480-w/2,y-16,w,24,{r:12,blur:12,oy:4,accent:t.col});
+      x.fillStyle=t.col; x.fillText(t.msg,480,y); x.globalAlpha=1; });
+  },
+  drawStreams(x){
+    // 4 creators -> a compact 2x2 grid kept in the UPPER canvas so the walking
+    // cluster stays visible at the bottom; a 640x360 POV base keeps tiles crisp.
+    const W=this.W, x0=249,y0=40,w=462,h=332;
+    panel(x,x0,y0,w,h,{r:16,accent:'#36d6ff'});
+    x.fillStyle='#7fe4ff'; x.font=UIb; x.textAlign='center';
+    x.fillText('LIVE FROM THE GLASSES · what each creator streams  (V to hide)',x0+w/2,y0+22);
+    const gap=12, cols=2, tileW=Math.floor((w-gap*(cols+1))/cols), tileH=Math.round(tileW*9/16);
+    const gx0=x0+gap, gy0=y0+30, rowH=tileH+16+gap;
+    // device-resolution tile caches (HiDPI-crisp) + one shared detailed base
+    const cW=Math.round(tileW*DPR), cH=Math.round(tileH*DPR), BW=640, BH=360;
+    if(!this.povBase){ this.povBase=document.createElement('canvas'); this.povBase.width=BW; this.povBase.height=BH; }
+    if(!this.scratch) this.scratch=document.createElement('canvas');
+    if(!this.povCache || this.povCache[0].width!==cW)
+      this.povCache=this.agents.map(()=>{ const cc=document.createElement('canvas'); cc.width=cW; cc.height=cH; return cc; });
+    paintPOV(this.povBase.getContext('2d'),BW,BH,W);    // render the shared scene once per frame
+    this.agents.forEach((a,i)=>{
+      const c=i%cols, r=(i/cols)|0, tx=gx0+c*(tileW+gap), ty=gy0+r*rowH;
+      const cxm=tx+tileW/2, cym=ty+tileH/2, P=POLICIES[i];
+      if(a.dead){
+        x.fillStyle='#0a0b0e'; x.fillRect(tx,ty,tileW,tileH);
+        x.fillStyle='#ff5340'; x.font='700 22px system-ui'; x.textAlign='center'; x.fillText('✖',cxm,cym+2);
+        x.fillStyle='#8a9099'; x.font='600 10px system-ui'; x.fillText('GLASSES OFFLINE',cxm,cym+22);
+      } else {
+        if(!a.stall){
+          const q=perceptualBlock(a.vrate, a.fpsFrac, W.cx);
+          const lw=Math.max(12,Math.round(cW/q)), lh=Math.max(7,Math.round(cH/q));
+          this.scratch.width=lw; this.scratch.height=lh;
+          const sc=this.scratch.getContext('2d'); sc.imageSmoothingEnabled=true; sc.clearRect(0,0,lw,lh);
+          sc.drawImage(this.povBase,0,0,BW,BH,0,0,lw,lh);          // averaged downsample of the detailed base
+          const cc=this.povCache[i].getContext('2d');
+          cc.imageSmoothingEnabled=false; cc.clearRect(0,0,cW,cH);
+          cc.drawImage(this.scratch,0,0,lw,lh,0,0,cW,cH);          // blocky upscale to device resolution
+          a._hasFrame=true;
+        }
+        if(a._hasFrame){ x.imageSmoothingEnabled=true; x.drawImage(this.povCache[i],0,0,cW,cH,tx,ty,tileW,tileH); }
+        else { x.fillStyle='#10141c'; x.fillRect(tx,ty,tileW,tileH);
+          x.fillStyle='#5a6470'; x.font='600 11px system-ui'; x.textAlign='center'; x.fillText('CONNECTING…',cxm,cym); }
+        if(a.stall){
+          x.fillStyle='rgba(8,10,14,0.62)'; x.fillRect(tx,ty,tileW,tileH);
+          x.strokeStyle='#ff5340'; x.lineWidth=3; x.lineCap='round'; const a0=(W.t*4)%(Math.PI*2);
+          x.beginPath(); x.arc(cxm,cym-4,12,a0,a0+Math.PI*1.4); x.stroke(); x.lineCap='butt';
+          x.fillStyle='#ffd1c8'; x.font='600 11px system-ui'; x.textAlign='center'; x.fillText('BUFFERING…',cxm,cym+22);
+        }
+      }
+      // policy-coloured border (P highlighted)
+      x.strokeStyle=(P.key==='P')?'#ffd83d':withAlpha(P.col,0.9); x.lineWidth=(P.key==='P')?2.5:1.5;
+      rrect(x,tx+0.5,ty+0.5,tileW-1,tileH-1,4); x.stroke();
+      // label strip
+      const ly=ty+tileH+2;
+      x.fillStyle='rgba(10,13,20,0.92)'; rrect(x,tx,ly,tileW,16,4); x.fill();
+      x.fillStyle=P.col; x.beginPath(); x.arc(tx+9,ly+8,4,0,7); x.fill();
+      x.fillStyle='#e8eef5'; x.textAlign='left'; x.font='600 10px system-ui';
+      const fpsTag=(a.fpsFrac<0.99)?(' · '+Math.round(a.fpsFrac*30)+'fps'):'';
+      const lab=a.dead?'—':(a.stall?'STALL':(vidTier(a.vrate)+' · '+(a.vrate/1e6).toFixed(0)+'M'+fpsTag));
+      x.fillText(P.key+'  '+lab,tx+18,ly+12);
+      const st=a.dead?['OFF','#ff5340']:(a.stall?['BUF','#ff8a6e']:['LIVE','#3ddc55']);
+      x.textAlign='right'; x.fillStyle=st[1]; x.fillText('● '+st[0],tx+tileW-5,ly+12);
+    });
+    x.textAlign='left';
+  },
+  drawMetrics(x){
+    const px=180,py=140,w=600,h=180;   // 4 policies -> shorter panel, vertically centred
+    panel(x,px,py,w,h,{r:16,accent:'#ffd83d'});
+    x.fillStyle='#ffd9a0'; x.font=UIb; x.textAlign='center'; x.fillText('LIVE METRICS   (M to hide)',px+w/2,py+24);
+    const cols=['','MODE','RATE','VIDEO','BUF','STALL','TEMP','GLASS%','PHONE%','QoE'];
+    const cw=[70,84,52,86,40,46,46,54,54,50];
+    let cxp=px+16; x.font='600 11px system-ui'; x.fillStyle='#8fb8d8';
+    cols.forEach((c,i)=>{ x.textAlign=i===0?'left':'right'; x.fillText(c,cxp+(i===0?0:cw[i]-6),py+46); cxp+=cw[i]; });
+    x.strokeStyle='rgba(255,255,255,0.10)'; x.lineWidth=1; x.beginPath(); x.moveTo(px+14,py+52); x.lineTo(px+w-14,py+52); x.stroke();
+    this.agents.forEach((a,r)=>{ const P=POLICIES[r], yy=py+70+r*28; cxp=px+16;
+      if(P.key==='P'){ x.fillStyle='rgba(47,127,255,0.12)'; rrect(x,px+10,yy-13,w-20,24,6); x.fill(); }
+      const vals=[P.key, a.dead?'DEAD':MODE_NAMES[a.mode-1],
+        (a.delivered/1e6).toFixed(0), a.dead?'-':((a.vrate/1e6).toFixed(0)+' ('+vidTier(a.vrate)+')'),
+        a.buf.toFixed(1), a.stallTime.toFixed(0)+'s', a.temp.toFixed(0)+'°',
+        (100*a.glassBatt/CFG.glass.batt_Wh).toFixed(0), (100*a.phoneBatt/CFG.phone.batt_Wh).toFixed(0),
+        a.avgQoE().toFixed(2)];
+      x.font='600 12px system-ui';
+      vals.forEach((v,i)=>{ x.textAlign=i===0?'left':'right';
+        if(i===0){ x.fillStyle=P.col; x.beginPath(); x.arc(px+21,yy-3,5,0,7); x.fill();
+          x.fillStyle='#fff'; x.font='700 12px system-ui'; x.fillText(v,px+30,yy); x.font='600 12px system-ui'; }
+        else { x.fillStyle = (i===7&&a.glassBatt/CFG.glass.batt_Wh<0.2)?'#ff5340'
+                 : (i===6&&a.temp>42)?'#ff5340' : (i===9&&a.avgQoE()<-1)?'#ff8a6e':'#dfe6ee';
+               x.fillText(v,cxp+cw[i]-6,yy); }
+        cxp+=cw[i]; });
+    });
+  },
+  drawScore(x){
+    x.fillStyle='rgba(2,5,10,'+(0.66*this.scoreT)+')'; x.fillRect(0,0,960,540);
+    const sy=540-this.scoreT*424, px=170,w=620;   // 4 policies -> shorter, centred card
+    panel(x,px,sy,w,308,{r:18,blur:30,oy:14,fill:'rgba(18,22,32,0.96)',accent:'#ffd83d'});
+    x.fillStyle='#ffd9a0'; x.font='700 18px system-ui'; x.textAlign='center';
+    x.fillText('RESULTS · t = '+this.W.t.toFixed(0)+' s',px+w/2,sy+32);
+    // winner = most useful quality-seconds (good picture × longevity), which
+    // rewards Proposed for sustaining target quality for longer instead of the
+    // pure avg-QoE that ignored uptime.
+    let best=-Infinity, bi=0;
+    this.agents.forEach((a,i)=>{ if(a.usefulQ>best){ best=a.usefulQ; bi=i; } });
+    const head=['POLICY','STALL','GLASS%','UPTIME','QoE','Q·SEC'];
+    const cw=[190,70,84,84,72,78]; let cxp=px+18;
+    x.font='600 12px system-ui'; x.fillStyle='#8fb8d8';
+    head.forEach((c,i)=>{ x.textAlign=i===0?'left':'right'; x.fillText(c,cxp+(i===0?0:cw[i]-8),sy+62); cxp+=cw[i]; });
+    this.agents.forEach((a,r)=>{ const P=POLICIES[r], yy=sy+88+r*40, win=(r===bi);
+      if(win){ x.save(); glow(x,px+w/2,yy-6,160,'rgba(255,216,61,0.10)',1); x.restore();
+        x.fillStyle='rgba(255,216,61,0.14)'; rrect(x,px+10,yy-23,w-20,34,8); x.fill();
+        rrect(x,px+10,yy-23,w-20,34,8); x.strokeStyle='rgba(255,216,61,0.5)'; x.lineWidth=1; x.stroke(); }
+      cxp=px+18;
+      // columns must match `head` = [POLICY, STALL, GLASS%, UPTIME, QoE, Q·SEC]
+      const vals=[(win?'★ ':'')+P.key+' '+(P.key==='P'?'PROPOSED':P.name.split(':')[0].split(',')[0]),
+        a.stallTime.toFixed(0)+'s',
+        (100*a.glassBatt/CFG.glass.batt_Wh).toFixed(0),
+        a.dead?('†'+a.deathT.toFixed(0)+'s'):a.aliveTime.toFixed(0)+'s',
+        a.avgQoE().toFixed(2),
+        Math.round(a.usefulQ)+'s'];
+      x.font='600 13px system-ui';
+      vals.forEach((v,i)=>{ x.textAlign=i===0?'left':'right';
+        if(i===0){ x.fillStyle=P.col; x.beginPath(); x.arc(px+24,yy-3,6,0,7); x.fill();
+          x.fillStyle=win?'#ffd83d':'#fff'; x.font='700 13px system-ui'; x.fillText(v,px+36,yy); x.font='600 13px system-ui'; }
+        else { x.fillStyle=win?'#ffd83d':'#dfe6ee'; x.fillText(v,cxp+cw[i]-8,yy); }
+        cxp+=cw[i]; });
+    });
+    x.fillStyle='#3ddc55'; x.font='700 13px system-ui'; x.textAlign='center';
+    x.fillText('WINNER: Creator '+POLICIES[bi].key+' · most useful quality-seconds (picture × longevity)',px+w/2,sy+262);
+    x.fillStyle='#8fb8d8'; x.font='600 12px system-ui'; x.fillText('press R to play again',px+w/2,sy+286);
+  },
+};
+
+/* ============================================================
+   8. Export helpers — download, minimal XLSX (store-zip+CRC32),
+      and a standalone HTML report with embedded data + charts.
+   ============================================================ */
+function downloadBlob(name,blob){ const a=document.createElement('a'); const url=URL.createObjectURL(blob);
+  a.href=url; a.download=name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url); a.remove();},200); }
+
+function crc32(u8){ let c=~0; for(let i=0;i<u8.length;i++){ c^=u8[i];
+  for(let k=0;k<8;k++) c=(c>>>1)^(0xEDB88320&-(c&1)); } return ~c>>>0; }
+
+function zipStore(files){   // ZIP, store method (no compression) — valid .xlsx container
+  const enc=new TextEncoder(); const parts=[]; const central=[]; let off=0;
+  const LE16=n=>[n&255,(n>>8)&255]; const LE32=n=>[n&255,(n>>8)&255,(n>>16)&255,(n>>>24)&255];
+  const date=20513, time=0;   // fixed DOS date 2020-01-01
+  const push=arr=>{ const u=Uint8Array.from(arr); parts.push(u); off+=u.length; };
+  files.forEach(f=>{ const name=enc.encode(f.name), data=f.bytes, crc=crc32(data), lo=off;
+    push([0x50,0x4b,3,4, ...LE16(20),...LE16(0),...LE16(0),...LE16(time),...LE16(date),
+      ...LE32(crc),...LE32(data.length),...LE32(data.length),...LE16(name.length),...LE16(0)]);
+    parts.push(name); off+=name.length; parts.push(data); off+=data.length;
+    central.push({name,crc,len:data.length,off:lo}); });
+  const cdStart=off;
+  central.forEach(c=>{ push([0x50,0x4b,1,2, ...LE16(20),...LE16(20),...LE16(0),...LE16(0),...LE16(time),...LE16(date),
+      ...LE32(c.crc),...LE32(c.len),...LE32(c.len),...LE16(c.name.length),...LE16(0),...LE16(0),...LE16(0),...LE16(0),...LE32(0),...LE32(c.off)]);
+    parts.push(c.name); off+=c.name.length; });
+  push([0x50,0x4b,5,6, ...LE16(0),...LE16(0),...LE16(central.length),...LE16(central.length),
+    ...LE32(off-cdStart),...LE32(cdStart),...LE16(0)]);
+  let total=0; parts.forEach(p=>total+=p.length); const out=new Uint8Array(total); let p=0;
+  parts.forEach(u=>{ out.set(u,p); p+=u.length; }); return out;
+}
+function colName(n){ let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=(n-m-1)/26|0; } return s; }
+function xmlEsc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function sheetXML(rows){
+  let o='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  rows.forEach((row,ri)=>{ const r=ri+1; o+='<row r="'+r+'">';
+    row.forEach((v,ci)=>{ const ref=colName(ci+1)+r;
+      if(typeof v==='number'&&isFinite(v)) o+='<c r="'+ref+'"><v>'+v+'</v></c>';
+      else o+='<c r="'+ref+'" t="inlineStr"><is><t xml:space="preserve">'+xmlEsc(String(v))+'</t></is></c>'; });
+    o+='</row>'; }); return o+'</sheetData></worksheet>';
+}
+function buildXLSX(sheets){
+  const enc=new TextEncoder();
+  const CT='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'+
+    '<Default Extension="xml" ContentType="application/xml"/>'+
+    sheets.map((s,i)=>'<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('')+
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>';
+  const RELS='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+  const WB='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+
+    sheets.map((s,i)=>'<sheet name="'+xmlEsc(s.name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets></workbook>';
+  const WBR='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    sheets.map((s,i)=>'<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>').join('')+'</Relationships>';
+  const files=[
+    {name:'[Content_Types].xml',bytes:enc.encode(CT)},
+    {name:'_rels/.rels',bytes:enc.encode(RELS)},
+    {name:'xl/workbook.xml',bytes:enc.encode(WB)},
+    {name:'xl/_rels/workbook.xml.rels',bytes:enc.encode(WBR)},
+    ...sheets.map((s,i)=>({name:'xl/worksheets/sheet'+(i+1)+'.xml',bytes:enc.encode(sheetXML(s.rows))}))];
+  return zipStore(files);
+}
+
+function buildReportHTML(meta){
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>UE-CoMIMO Run Report</title><style>'+
+  'body{margin:0;background:#0d0d12;color:#e6edf3;font-family:Consolas,monospace}'+
+  'header{padding:14px 20px;border-bottom:3px solid #ffd83d}h1{margin:0;font-size:18px;color:#ffd83d}'+
+  '#meta{color:#9fb0c0;font-size:12px;margin-top:4px}#legend{display:flex;flex-wrap:wrap;gap:14px;padding:10px 20px;font-size:12px}'+
+  '#legend span{display:flex;align-items:center}#legend i{width:14px;height:14px;margin-right:6px;display:inline-block}'+
+  '.card{margin:14px 20px;background:#11141b;border:1px solid #222a35}canvas{display:block}'+
+  'h2{font-size:14px;color:#ffd83d;margin:24px 20px 6px}table{border-collapse:collapse;margin:0 20px 30px;font-size:12px}'+
+  'td{border-bottom:1px solid #222a35;padding:4px 10px}td:first-child{color:#9fe8ff;white-space:nowrap}</style></head><body>'+
+  '<header><h1>Agentic UE-CoMIMO — Interactive Run Report</h1><div id="meta"></div></header>'+
+  '<div id="legend"></div><div id="root"></div><h2>EVENT LOG</h2><table id="events"></table>'+
+  '<script>var D='+JSON.stringify(meta)+';'+
+  'document.getElementById("meta").textContent="seed "+D.seed+"  ·  "+D.tEnd+" s  ·  "+D.history.length+" samples ("+D.sampleEvery+" s)  ·  "+D.events.length+" events";'+
+  'var charts=[{t:"Delivered uplink rate (Mbps)",f:1,r:null},{t:"Video bitrate (Mbps)",f:2,r:null},'+
+  '{t:"AI-glass temperature (\\u00b0C)",f:4,r:42},{t:"AI-glass battery (%)",f:5,r:null},'+
+  '{t:"Smartphone battery (%)",f:6,r:null},{t:"QoE (running average)",f:9,r:0}];'+
+  'var Tmax=D.history.length?D.history[D.history.length-1].t:1;'+
+  'function draw(c,title,f,refline){var x=c.getContext("2d"),W=920,H=210,L=58,R=16,Tp=26,B=26;'+
+  'var lo=Infinity,hi=-Infinity;D.policies.forEach(function(p,ai){D.history.forEach(function(s){var v=s.a[ai][f];if(v<lo)lo=v;if(v>hi)hi=v;});});'+
+  'if(refline!=null){lo=Math.min(lo,refline);hi=Math.max(hi,refline);}if(lo===hi)hi=lo+1;var pd=(hi-lo)*0.08;lo-=pd;hi+=pd;'+
+  'var X=function(t){return L+(W-L-R)*(t/(Tmax||1));},Y=function(v){return Tp+(H-Tp-B)*(1-(v-lo)/(hi-lo));};'+
+  'x.fillStyle="#11141b";x.fillRect(0,0,W,H);x.fillStyle="#ffd83d";x.font="13px monospace";x.fillText(title,L,17);'+
+  'x.font="10px monospace";for(var g=0;g<=4;g++){var v=lo+(hi-lo)*g/4,yy=Y(v);x.strokeStyle="#222831";x.beginPath();x.moveTo(L,yy);x.lineTo(W-R,yy);x.stroke();x.fillStyle="#7f8a99";x.fillText(v.toFixed(1),6,yy+3);}'+
+  'for(var g2=0;g2<=5;g2++){var tt=Tmax*g2/5;x.fillStyle="#7f8a99";x.fillText(tt.toFixed(0)+"s",X(tt)-8,H-8);}'+
+  'x.strokeStyle="rgba(255,216,61,0.16)";D.events.forEach(function(e){x.beginPath();x.moveTo(X(e.t),Tp);x.lineTo(X(e.t),H-B);x.stroke();});'+
+  'if(refline!=null){x.strokeStyle="#ff5340";x.setLineDash([5,4]);x.beginPath();x.moveTo(L,Y(refline));x.lineTo(W-R,Y(refline));x.stroke();x.setLineDash([]);}'+
+  'D.policies.forEach(function(p,ai){x.strokeStyle=p.col;x.lineWidth=p.key==="P"?2.4:1.3;x.beginPath();D.history.forEach(function(s,i){var px=X(s.t),py=Y(s.a[ai][f]);if(i===0)x.moveTo(px,py);else x.lineTo(px,py);});x.stroke();});}'+
+  'var root=document.getElementById("root");charts.forEach(function(ch){var b=document.createElement("div");b.className="card";var c=document.createElement("canvas");c.width=920;c.height=210;c.style.width="100%";b.appendChild(c);root.appendChild(b);draw(c,ch.t,ch.f,ch.r);});'+
+  'var lg=document.getElementById("legend");D.policies.forEach(function(p){var s=document.createElement("span");s.innerHTML="<i style=\\"background:"+p.col+"\\"></i>"+p.key+" "+p.name;lg.appendChild(s);});'+
+  'var et=document.getElementById("events");D.events.forEach(function(e){var tr=document.createElement("tr");tr.innerHTML="<td>"+e.t+" s</td><td>"+String(e.msg).replace(/</g,"&lt;")+"</td>";et.appendChild(tr);});'+
+  '<\/script></body></html>';
+}
+
+/* fit canvas to viewport */
+function fit(){ const s=Math.min(innerWidth/(960+24), innerHeight/(540+24));
+  G.cv.style.width=(960*s)+'px'; G.cv.style.height=(540*s)+'px';
+  // keep the one-time tip clear of the in-canvas legend strip (bottom 26 px of
+  // the 540 px canvas), tracking the current scale instead of a fixed offset.
+  const hint=document.getElementById('hint');
+  if(hint){ const gapBottom=(innerHeight-540*s)/2;
+    hint.style.bottom=Math.max(14, gapBottom+26*s+8)+'px'; } }
+addEventListener('resize',fit); fit();
+</script>
+</body>
+</html>

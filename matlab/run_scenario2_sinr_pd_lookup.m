@@ -1,0 +1,1468 @@
+function result = run_scenario2_sinr_pd_lookup(varargin)
+%RUN_SCENARIO2_SINR_PD_LOOKUP Scenario 2 with cached waveform-CFAR P_d(SINR).
+%
+% This MATLAB version follows the current Python Scenario 2 arrangement:
+% - phone is the sensing transmitter and cellular uplink hub;
+% - watch is the default bistatic receiver and can be body-blocked;
+% - scooter CPE is recruited only when watch P_d drops for an approaching rear target;
+% - CFAR lookup tables are saved and reused when the same setup is requested.
+
+cfg = defaultConfig();
+cfg = applyNameValue(cfg, varargin{:});
+
+rootDir = fileparts(mfilename("fullpath"));
+cacheDir = fullfile(rootDir, "cfar_cache");
+artifactDir = fullfile(rootDir, "artifacts", cfg.outputTag);
+if ~exist(cacheDir, "dir"), mkdir(cacheDir); end
+if ~exist(artifactDir, "dir"), mkdir(artifactDir); end
+
+rng(cfg.seed, "twister");
+txPosition = [-0.1, 0.58, 1.2];
+cpe.position = [0.55, -0.62, 0.75];
+cpe.gainLinear = 4.0;
+
+pdLookup = loadOrBuildCfarLookup(cfg, cacheDir, txPosition, cpe);
+
+timeGrid = 0:cfg.dt:cfg.simulationTime;
+nominal = computeNominalSinrSeries(cfg, timeGrid, txPosition, cpe);
+commChannel = makeCommChannel(cfg, timeGrid);
+
+trials = repmat(runTrial(cfg, cfg.seed, timeGrid, nominal, ...
+    commChannel.rPhoneBps, pdLookup), cfg.numTrials, 1);
+for k = 2:cfg.numTrials
+    trials(k) = runTrial(cfg, cfg.seed + k - 1, timeGrid, nominal, ...
+        commChannel.rPhoneBps, pdLookup);
+end
+
+sensingMetrics = computeSensingMetrics(cfg, trials, timeGrid, nominal);
+commMetrics = computeCommMetrics(cfg, trials, timeGrid, nominal, commChannel);
+qoeMetrics = computeQoe(cfg, sensingMetrics, commMetrics);
+
+result = struct();
+result.config = cfg;
+result.lookup = pdLookup;
+result.nominal = nominal;
+result.sensingMetrics = sensingMetrics;
+result.commMetrics = commMetrics;
+result.qoeMetrics = qoeMetrics;
+result.artifactDir = artifactDir;
+
+save(fullfile(artifactDir, "scenario2_matlab_report.mat"), "result", "-v7.3");
+writeSummaryJson(fullfile(artifactDir, "scenario2_matlab_summary.json"), result);
+plotPdCurves(pdLookup, fullfile(artifactDir, "waveform_cfar_pd_curves.png"));
+plotSystemOverview(cfg, timeGrid, nominal, trials, commChannel, ...
+    fullfile(artifactDir, "system_overview.png"));
+result.policyComparison = exportPaperFigure(cfg, timeGrid, nominal, trials, ...
+    commChannel, fullfile(artifactDir, "blindspot_paper_combined.png"));
+
+printMetrics(sensingMetrics, commMetrics, qoeMetrics, pdLookup);
+fprintf("Saved MATLAB Scenario 2 results to:\n  %s\n", artifactDir);
+end
+
+function cfg = defaultConfig()
+cfg = struct();
+cfg.seed = 31;
+cfg.numTrials = 1000;
+cfg.simulationTime = 15.0;
+cfg.dt = 0.1;
+cfg.warningRangeM = 18.0;
+cfg.targetMotionTime = 10.0;
+cfg.targetPassSpeed = 6.0;
+
+% Closed-loop resilience event: the scooter CPE becomes unavailable during
+% [cpeFailStartS, cpeFailEndS) (e.g., link drop, power glitch, or it rolls out
+% of range). The watch has recovered from the earlier body blockage by then,
+% so the agentic hub can re-plan to phone-watch bistatic sensing. Set
+% cpeFailStartS = Inf to disable the failure event.
+cfg.cpeFailStartS = 8.0;
+cfg.cpeFailEndS = 10.5;
+
+cfg.carrierHz = 3.65e9;
+cfg.bandwidthHz = 100e6;
+cfg.txPowerW = dbmToW(23.0);
+cfg.noiseFigureDb = 7.0;
+cfg.noisePowerW = thermalNoisePowerW(cfg.bandwidthHz, cfg.noiseFigureDb, 290.0);
+cfg.targetRcsM2 = 0.1;
+cfg.clutterToNoise = 0.25;
+cfg.adcBits = 10;
+cfg.adcBackoffDb = 6.0;
+cfg.blockageLossDb = 20.0;
+cfg.siAnalogDb = 65.0;
+cfg.siDigitalDb = 35.0;
+cfg.dpAnalogDb = 40.0;
+cfg.dpDigitalDb = 60.0;
+cfg.watchTokenReliability = 0.98;
+cfg.cpeTokenReliability = 0.85;
+cfg.fusionPdCeiling = 0.97;
+
+cfg.cfarMode = "range-1d";
+cfg.cfarNSubcarriers = 2048;
+cfg.cfarNumSymbols = 1;
+cfg.cfarSubcarrierSpacingHz = 60e3;
+cfg.cfarPfa = 1e-4;
+cfg.cfarNumMonteCarlo = 2000;
+cfg.cfarNumH0Trials = 5000;
+cfg.cfarSinrPointsDb = -35:2:20;
+cfg.cfarReferenceRangeM = 18.0;
+cfg.cfarGuardCells = 2;
+cfg.cfarTrainingCells = 16;
+cfg.cfarSearchCells = 5;
+cfg.cfarDetectionWindow = 2;
+
+cfg.gnbDistanceM = 200.0;
+cfg.gnbHeightM = 25.0;
+cfg.gnbNfDb = 7.0;
+cfg.commEta = 0.55;
+cfg.phoneBodyLossDb = 3.0;
+cfg.shadowStdDb = 4.0;
+cfg.temporalStdDb = 1.5;
+cfg.temporalTauS = 2.0;
+cfg.shadowCorrM = 10.0;
+cfg.riderSpeedMps = 3.0;
+cfg.cpeGnbTxDbm = 23.0;
+cfg.cpeGnbAntennaGainDb = 4.0;
+cfg.cpeShadowStdDb = 3.5;
+cfg.cpeTemporalStdDb = 1.0;
+cfg.cpeTemporalTauS = 3.0;
+
+cfg.videoLadderBps = [3e6 8e6 15e6 25e6];
+cfg.videoTargetBps = 15e6;
+cfg.videoMarginBps = 3e6;
+cfg.videoBuf0S = 2.0;
+cfg.videoBufCapS = 2.5;
+cfg.videoBufLowS = 1.0;
+cfg.warningControlBps = 20e3;
+cfg.coordinationBps = 300e3;
+cfg.videoCapWarningBps = 8e6;
+cfg.videoCapSafetyBps = 15e6;
+
+cfg.pPhoneSensingTxW = 0.2;
+cfg.pPhoneIdleW = 0.3;
+cfg.pPhoneLocalRxW = 0.4;
+cfg.pPhoneCommTxW = 2.0;
+cfg.pWatchRxW = 0.05;
+cfg.pCpeRxW = 0.10;
+cfg.pCpeCommTxW = 2.0;
+cfg.pGlassCamW = 0.7;
+cfg.pGlassEnc0W = 0.1;
+cfg.pGlassEnc1W = 1.6;
+cfg.pGlassEncExp = 1.5;
+cfg.pGlassLocalTx0W = 0.3;
+cfg.pGlassLocalTx1W = 0.3;
+
+cfg.qoeWOver = 0.1;
+cfg.qoeWStream = 1.0;
+cfg.qoeWWarning = 2.0;
+cfg.qoeWMissed = 3.0;
+cfg.qoeWFalse = 0.5;
+cfg.qoeWLatency = 1.0;
+cfg.qoeWToken = 0.3;
+cfg.qoeWEnergy = 0.5;
+cfg.qoeWSwitch = 0.2;
+
+cfg.outputTag = "scenario2_matlab_range1d_cfar";
+end
+
+function cfg = applyNameValue(cfg, varargin)
+if mod(numel(varargin), 2) ~= 0
+    error("Arguments must be name-value pairs.");
+end
+for i = 1:2:numel(varargin)
+    name = char(varargin{i});
+    if ~isfield(cfg, name)
+        error("Unknown config field: %s", name);
+    end
+    cfg.(name) = varargin{i + 1};
+end
+end
+
+function lookup = loadOrBuildCfarLookup(cfg, cacheDir, txPosition, cpe)
+setup = cfarSetupStruct(cfg);
+setupHash = sha256Json(setup);
+cacheFile = fullfile(cacheDir, "cfar_lookup_" + setupHash + ".mat");
+if exist(cacheFile, "file")
+    data = load(cacheFile, "lookup");
+    lookup = data.lookup;
+    lookup.cacheHit = true;
+    fprintf("Loaded cached CFAR lookup:\n  %s\n", cacheFile);
+    return;
+end
+
+fprintf("Building CFAR lookup: %d SINR points, %d target trials/point, %d H0 trials...\n", ...
+    numel(cfg.cfarSinrPointsDb), cfg.cfarNumMonteCarlo, cfg.cfarNumH0Trials);
+lookup = buildCfarLookup(cfg, txPosition, cpe);
+lookup.setup = setup;
+lookup.setupHash = setupHash;
+lookup.cacheFile = cacheFile;
+lookup.cacheHit = false;
+save(cacheFile, "lookup", "-v7.3");
+fprintf("Saved CFAR lookup cache:\n  %s\n", cacheFile);
+end
+
+function setup = cfarSetupStruct(cfg)
+names = ["seed","carrierHz","bandwidthHz","txPowerW","noiseFigureDb", ...
+    "targetRcsM2","clutterToNoise","adcBits","adcBackoffDb","blockageLossDb", ...
+    "siAnalogDb","siDigitalDb","dpAnalogDb","dpDigitalDb","cfarMode", ...
+    "cfarNSubcarriers","cfarNumSymbols","cfarSubcarrierSpacingHz", ...
+    "cfarPfa","cfarNumMonteCarlo", ...
+    "cfarNumH0Trials","cfarSinrPointsDb","cfarReferenceRangeM", ...
+    "cfarGuardCells", ...
+    "cfarTrainingCells","cfarSearchCells","cfarDetectionWindow"];
+setup = struct();
+for i = 1:numel(names)
+    setup.(names(i)) = cfg.(names(i));
+end
+setup.version = "matlab-ofdm-sinr-pd-cfar-v2";
+end
+
+function lookup = buildCfarLookup(cfg, txPosition, cpe)
+if cfg.cfarMode ~= "range-1d"
+    error("This MATLAB implementation currently supports cfarMode=""range-1d"".");
+end
+
+sinrPointsDb = cfg.cfarSinrPointsDb(:).';
+phone.position = txPosition;
+phone.gainLinear = 1.0;
+watch0.position = watchPosition(0.0);
+watch0.gainLinear = 2.0;
+
+calibrationTrials = max(1, round(0.7 * cfg.cfarNumH0Trials));
+validationTrials = max(1, cfg.cfarNumH0Trials - calibrationTrials);
+targetH0 = [-cfg.cfarReferenceRangeM, 0.0, 1.1];
+
+monoScores = zeros(calibrationTrials, 1);
+watchScores = zeros(calibrationTrials, 1);
+for k = 1:calibrationTrials
+    monoScores(k) = simulateRange1dCfarScore(cfg, txPosition, phone, targetH0, false, [], []);
+    watchScores(k) = simulateRange1dCfarScore(cfg, txPosition, watch0, targetH0, false, [], []);
+end
+monoMultiplier = max(1.0, higherQuantile(monoScores, 1.0 - cfg.cfarPfa));
+watchMultiplier = max(1.0, higherQuantile(watchScores, 1.0 - cfg.cfarPfa));
+
+monoFa = 0;
+watchFa = 0;
+for k = 1:validationTrials
+    monoFa = monoFa + (simulateRange1dCfarScore(cfg, txPosition, phone, targetH0, false, [], []) > monoMultiplier);
+    watchFa = watchFa + (simulateRange1dCfarScore(cfg, txPosition, watch0, targetH0, false, [], []) > watchMultiplier);
+end
+
+monoPd = zeros(size(sinrPointsDb));
+watchPd = zeros(size(sinrPointsDb));
+cpePd = zeros(size(sinrPointsDb));
+fusedPd = zeros(size(sinrPointsDb));
+
+monoDisturbanceW = effectiveDisturbancePower(cfg, txPosition, phone);
+watchDisturbanceW = effectiveDisturbancePower(cfg, txPosition, watch0);
+cpeDisturbanceW = effectiveDisturbancePower(cfg, txPosition, cpe);
+
+for i = 1:numel(sinrPointsDb)
+    target = targetH0;
+    sinrLinear = 10^(sinrPointsDb(i) / 10);
+    monoTargetPowerW = monoDisturbanceW * sinrLinear;
+    watchTargetPowerW = watchDisturbanceW * sinrLinear;
+    cpeTargetPowerW = cpeDisturbanceW * sinrLinear;
+    monoDet = 0;
+    watchDet = 0;
+    cpeDet = 0;
+    fusionDet = 0;
+    for k = 1:cfg.cfarNumMonteCarlo
+        sharedRcsScale = exprndLocal(1.0);
+        monoHit = simulateRange1dCfarScore(cfg, txPosition, phone, target, true, monoTargetPowerW, sharedRcsScale) > monoMultiplier;
+        watchHit = simulateRange1dCfarScore(cfg, txPosition, watch0, target, true, watchTargetPowerW, sharedRcsScale) > watchMultiplier;
+        cpeHit = simulateRange1dCfarScore(cfg, txPosition, cpe, target, true, cpeTargetPowerW, sharedRcsScale) > watchMultiplier;
+        monoDet = monoDet + monoHit;
+        watchDet = watchDet + watchHit;
+        cpeDet = cpeDet + cpeHit;
+        fusionDet = fusionDet + (watchHit || cpeHit);
+    end
+    monoPd(i) = monoDet / cfg.cfarNumMonteCarlo;
+    watchPd(i) = watchDet / cfg.cfarNumMonteCarlo;
+    cpePd(i) = cpeDet / cfg.cfarNumMonteCarlo;
+    fusedPd(i) = fusionDet / cfg.cfarNumMonteCarlo;
+end
+
+lookup = struct();
+lookup.source = "matlab-ofdm-waveform-cfar-sinr-pd";
+lookup.sinrPointsDb = sinrPointsDb;
+lookup.rawCurves.monostatic = monoPd;
+lookup.rawCurves.singleBistatic = watchPd;
+lookup.rawCurves.cpeBistatic = cpePd;
+lookup.rawCurves.multiRxFusion = fusedPd;
+monoPd = cummax(monoPd);
+watchPd = cummax(watchPd);
+cpePd = cummax(cpePd);
+fusedPd = cummax(fusedPd);
+lookup.curves.monostatic = monoPd;
+lookup.curves.singleBistatic = watchPd;
+lookup.curves.cpeBistatic = cpePd;
+lookup.curves.multiRxFusion = fusedPd;
+lookup.config.cfarMode = cfg.cfarMode;
+lookup.config.ofdmSubcarriers = cfg.cfarNSubcarriers;
+lookup.config.ofdmSymbolsPerCpi = cfg.cfarNumSymbols;
+lookup.config.pfaDesign = cfg.cfarPfa;
+lookup.config.monteCarloTrialsPerDistance = cfg.cfarNumMonteCarlo;
+lookup.config.h0Trials = cfg.cfarNumH0Trials;
+lookup.config.referenceRangeM = cfg.cfarReferenceRangeM;
+lookup.config.sinrDefinition = "mean echo power / (thermal + clutter + residual interference + ADC quantization noise)";
+lookup.config.swerlingModel = "Swerling-I exponential RCS scale around mean SINR";
+lookup.config.monostaticThresholdMultiplier = monoMultiplier;
+lookup.config.singleBistaticThresholdMultiplier = watchMultiplier;
+lookup.config.empiricalMonostaticPfa = monoFa / validationTrials;
+lookup.config.empiricalSingleBistaticPfa = watchFa / validationTrials;
+lookup.config.analogSiSuppressionDb = cfg.siAnalogDb;
+lookup.config.digitalSiCancellationDb = cfg.siDigitalDb;
+lookup.config.analogDirectPathSuppressionDb = cfg.dpAnalogDb;
+lookup.config.digitalDirectPathCancellationDb = cfg.dpDigitalDb;
+end
+
+function score = simulateRange1dCfarScore(cfg, txPosition, rx, targetPosition, targetPresent, averageTargetPowerW, rcsScale)
+% Full waveform chain aligned with the Python range-1D OFDM-CFAR model.
+N = cfg.cfarNSubcarriers;
+M = cfg.cfarNumSymbols;
+velocity = [1.6, 0.0, 0.0];
+[delayS, dopplerHz] = pathDelayAndDoppler(cfg, txPosition, rx.position, targetPosition, velocity);
+desiredGrid = clutterGrid(cfg);
+isMonostatic = norm(rx.position - txPosition) < 1e-9;
+if isMonostatic
+    interferenceGrid = selfInterferenceGrid(cfg);
+    digitalCancellationDb = max(0.0, cfg.siDigitalDb);
+else
+    interferenceGrid = directPathGrid(cfg, txPosition, rx);
+    digitalCancellationDb = max(0.0, cfg.dpDigitalDb);
+end
+
+if targetPresent
+    if isempty(rcsScale), rcsScale = exprndLocal(1.0); end
+    amplitude = sqrt(max(averageTargetPowerW * rcsScale, 0.0));
+    desiredGrid = desiredGrid + complexPath(cfg, amplitude, delayS, dopplerHz, 2 * pi * rand());
+end
+
+channelEstimate = adcChannelEstimate(cfg, desiredGrid, interferenceGrid, digitalCancellationDb);
+rangeWindow = 0.5 - 0.5 * cos(2 * pi * (0:N-1).' / max(N - 1, 1));
+delayResponse = ifft(channelEstimate .* repmat(rangeWindow, 1, M), [], 1) * N;
+power = mean(abs(delayResponse).^2, 2);
+expectedBin = mod(round(delayS * cfg.bandwidthHz), N) + 1;
+offsets = -cfg.cfarDetectionWindow:cfg.cfarDetectionWindow;
+idxs = (mod(expectedBin + offsets - 1, N) + 1).';
+threshold = cfarThresholdAtIndices(power, idxs, cfg);
+score = max(power(idxs) ./ max(threshold, 1e-30));
+end
+
+function [delayS, dopplerHz] = pathDelayAndDoppler(cfg, txPosition, rxPosition, targetPosition, velocity)
+c = 3e8;
+lambda = c / cfg.carrierHz;
+txVector = targetPosition - txPosition;
+rxVector = targetPosition - rxPosition;
+dTx = max(norm(txVector), 1e-9);
+dRx = max(norm(rxVector), 1e-9);
+delayS = (dTx + dRx) / c;
+bistaticRangeRate = dot(velocity, txVector / dTx) + dot(velocity, rxVector / dRx);
+dopplerHz = -bistaticRangeRate / lambda;
+end
+
+function grid = complexPath(cfg, amplitude, delayS, dopplerHz, phaseRad)
+N = cfg.cfarNSubcarriers;
+M = cfg.cfarNumSymbols;
+frequencyHz = ((0:N-1).' - N / 2) * (cfg.bandwidthHz / N);
+slowTimeS = (0:M-1) / cfg.cfarSubcarrierSpacingHz;
+delayPhase = exp(-1j * 2 * pi * frequencyHz * delayS);
+dopplerPhase = exp(1j * 2 * pi * slowTimeS * dopplerHz);
+grid = amplitude * exp(1j * phaseRad) .* (delayPhase * dopplerPhase);
+end
+
+function grid = selfInterferenceGrid(cfg)
+preAdcPower = cfg.txPowerW * 10^(-cfg.siAnalogDb / 10);
+coherentPower = 0.8 * preAdcPower;
+weights = [0.72, 0.20, 0.08];
+delaysS = [1.0, 5.0, 12.0] * 1e-9;
+dopplersHz = 12.0 * randn(1, 3);
+grid = complex(zeros(cfg.cfarNSubcarriers, cfg.cfarNumSymbols));
+for i = 1:3
+    grid = grid + complexPath(cfg, sqrt(coherentPower * weights(i)), ...
+        delaysS(i), dopplersHz(i), 2 * pi * rand());
+end
+diffusePower = 0.2 * preAdcPower;
+grid = grid + sqrt(diffusePower / 2) .* ...
+    (randn(size(grid)) + 1j * randn(size(grid)));
+end
+
+function grid = directPathGrid(cfg, txPosition, rx)
+distanceM = max(norm(rx.position - txPosition), 0.05);
+preAdcPower = directPathPower(cfg, txPosition, rx) * 10^(-cfg.dpAnalogDb / 10);
+grid = complexPath(cfg, sqrt(preAdcPower), distanceM / 3e8, ...
+    4.0 * randn(), 2 * pi * rand());
+end
+
+function grid = clutterGrid(cfg)
+N = cfg.cfarNSubcarriers;
+M = cfg.cfarNumSymbols;
+clutterPower = cfg.clutterToNoise * cfg.noisePowerW;
+frequencyResponse = sqrt(clutterPower / 2) .* ...
+    (randn(N, 1) + 1j * randn(N, 1));
+slowDopplerHz = 12.0 * randn();
+slowTimeS = (0:M-1) / cfg.cfarSubcarrierSpacingHz;
+grid = frequencyResponse * exp(1j * 2 * pi * slowDopplerHz * slowTimeS);
+end
+
+function symbols = qpskGrid(cfg)
+realPart = 2 * randi([0 1], cfg.cfarNSubcarriers, cfg.cfarNumSymbols) - 1;
+imagPart = 2 * randi([0 1], cfg.cfarNSubcarriers, cfg.cfarNumSymbols) - 1;
+symbols = (realPart + 1j * imagPart) / sqrt(2);
+end
+
+function channelEstimate = adcChannelEstimate(cfg, desiredChannel, interferenceChannel, digitalCancellationDb)
+N = cfg.cfarNSubcarriers;
+symbols = qpskGrid(cfg);
+totalChannel = desiredChannel + interferenceChannel;
+frequencySamples = totalChannel .* symbols + sqrt(cfg.noisePowerW / 2) .* ...
+    (randn(size(totalChannel)) + 1j * randn(size(totalChannel)));
+timeSamples = ifft(frequencySamples, [], 1) * sqrt(N);
+rmsValue = max(sqrt(mean(abs(timeSamples(:)).^2)), 1e-15);
+fullScale = rmsValue * 10^(cfg.adcBackoffDb / 20);
+maxCode = 2^(cfg.adcBits - 1) - 1;
+step = fullScale / maxCode;
+clippedReal = min(max(real(timeSamples), -fullScale), fullScale);
+clippedImag = min(max(imag(timeSamples), -fullScale), fullScale);
+quantizedTime = step .* (round(clippedReal / step) + 1j * round(clippedImag / step));
+quantizedFrequency = fft(quantizedTime, [], 1) / sqrt(N);
+channelEstimate = quantizedFrequency ./ symbols;
+if digitalCancellationDb > 0
+    residualRatio = 10^(-digitalCancellationDb / 20);
+    channelEstimate = channelEstimate - interferenceChannel * (1 - residualRatio);
+end
+end
+
+function threshold = cfarThresholdAtIndices(power, cutIndices, cfg)
+N = numel(power);
+T = cfg.cfarTrainingCells;
+G = cfg.cfarGuardCells;
+trainingCount = 2 * T;
+cellPfa = cfg.cfarPfa / max(1, cfg.cfarSearchCells);
+alpha = trainingCount * (cellPfa^(-1 / trainingCount) - 1);
+threshold = zeros(size(cutIndices));
+for k = 1:numel(cutIndices)
+    cut = cutIndices(k);
+    offsets = (G + 1):(G + T);
+    left = mod(cut - offsets - 1, N) + 1;
+    right = mod(cut + offsets - 1, N) + 1;
+    threshold(k) = alpha * max(mean(power([left, right])), 1e-30);
+end
+end
+
+function value = higherQuantile(samples, probability)
+samples = sort(samples(:));
+idx = max(1, min(numel(samples), ceil(probability * numel(samples))));
+value = samples(idx);
+end
+
+function nominal = computeNominalSinrSeries(cfg, timeGrid, txPosition, cpe)
+phone.position = txPosition;
+phone.gainLinear = 1.0;
+thermalClutter = cfg.noisePowerW * (1 + cfg.clutterToNoise);
+
+monoPreAdcSi = cfg.txPowerW * 10^(-cfg.siAnalogDb / 10);
+monoResidualSi = cfg.txPowerW * 10^(-(cfg.siAnalogDb + cfg.siDigitalDb) / 10);
+monoAdcNoise = adcQuantizationNoisePower(monoPreAdcSi + thermalClutter, cfg.adcBits, cfg.adcBackoffDb);
+monoNoise = thermalClutter + monoResidualSi + monoAdcNoise;
+
+cpeDirect = directPathPower(cfg, txPosition, cpe);
+cpePreAdc = cpeDirect * 10^(-cfg.dpAnalogDb / 10);
+cpeResidual = cpeDirect * 10^(-(cfg.dpAnalogDb + cfg.dpDigitalDb) / 10);
+cpeAdcNoise = adcQuantizationNoisePower(cpePreAdc + thermalClutter, cfg.adcBits, cfg.adcBackoffDb);
+cpeNoise = thermalClutter + cpeResidual + cpeAdcNoise;
+
+n = numel(timeGrid);
+targetRange = zeros(1, n);
+targetX = zeros(1, n);
+blockageLoss = zeros(1, n);
+monoSignal = zeros(1, n);
+watchSignal = zeros(1, n);
+cpeSignal = zeros(1, n);
+watchResidualDp = zeros(1, n);
+watchAdcNoise = zeros(1, n);
+
+for i = 1:n
+    [target, ~] = targetState(cfg, timeGrid(i));
+    watch.position = watchPosition(timeGrid(i));
+    watch.gainLinear = 2.0;
+    targetRange(i) = norm(target(1:2));
+    targetX(i) = target(1);
+    blocked = segmentIntersectsBody(watch.position, target);
+    fraction = bodyBlockageFraction(timeGrid(i)) * double(blocked);
+    blockageLoss(i) = cfg.blockageLossDb * fraction;
+    monoSignal(i) = bistaticTargetPower(cfg, txPosition, phone, target, 0.0);
+    watchSignal(i) = bistaticTargetPower(cfg, txPosition, watch, target, blockageLoss(i));
+    cpeSignal(i) = bistaticTargetPower(cfg, txPosition, cpe, target, 0.0);
+    watchDirect = directPathPower(cfg, txPosition, watch);
+    watchPreAdc = watchDirect * 10^(-cfg.dpAnalogDb / 10);
+    watchResidualDp(i) = watchDirect * 10^(-(cfg.dpAnalogDb + cfg.dpDigitalDb) / 10);
+    watchAdcNoise(i) = adcQuantizationNoisePower(watchPreAdc + thermalClutter, cfg.adcBits, cfg.adcBackoffDb);
+end
+watchNoise = thermalClutter + watchResidualDp + watchAdcNoise;
+
+nominal.targetRangeM = targetRange;
+nominal.targetXM = targetX;
+nominal.blockageLossDb = blockageLoss;
+nominal.monoSignalW = monoSignal;
+nominal.watchSignalW = watchSignal;
+nominal.cpeSignalW = cpeSignal;
+nominal.monoSinrDb = powerToDb(monoSignal ./ monoNoise);
+nominal.watchSinrDb = powerToDb(watchSignal ./ watchNoise);
+nominal.cpeSinrDb = powerToDb(cpeSignal ./ cpeNoise);
+nominal.monoSiNoiseW = monoResidualSi * ones(1, n);
+nominal.monoAdcNoiseW = monoAdcNoise * ones(1, n);
+nominal.watchResidualDpW = watchResidualDp;
+nominal.watchAdcNoiseW = watchAdcNoise;
+nominal.cpeResidualDpW = cpeResidual * ones(1, n);
+nominal.cpeAdcNoiseW = cpeAdcNoise * ones(1, n);
+end
+
+function channel = makeCommChannel(cfg, timeGrid)
+d3d = sqrt(cfg.gnbDistanceM^2 + cfg.gnbHeightM^2);
+plDb = umaPathLossDb(d3d, cfg.carrierHz);
+phoneTxDbm = wToDbm(cfg.txPowerW);
+noiseDbm = -174 + 10 * log10(cfg.bandwidthHz) + cfg.gnbNfDb;
+n = numel(timeGrid);
+dt = timeGrid(2) - timeGrid(1);
+shadowTau = cfg.shadowCorrM / cfg.riderSpeedMps;
+phoneShadow = ar1Process(n, cfg.shadowStdDb, shadowTau, dt);
+phoneTv = ar1Process(n, cfg.temporalStdDb, cfg.temporalTauS, dt);
+phoneSinrDb = phoneTxDbm - plDb - cfg.phoneBodyLossDb - phoneShadow + phoneTv - noiseDbm;
+rPhone = cfg.commEta * cfg.bandwidthHz .* log2(1 + 10.^(phoneSinrDb / 10));
+
+cpeEffTxDbm = cfg.cpeGnbTxDbm + cfg.cpeGnbAntennaGainDb;
+cpeShadow = ar1Process(n, cfg.cpeShadowStdDb, shadowTau, dt);
+cpeTv = ar1Process(n, cfg.cpeTemporalStdDb, cfg.cpeTemporalTauS, dt);
+cpeSinrDb = cpeEffTxDbm - plDb - cpeShadow + cpeTv - noiseDbm;
+rCpe = cfg.commEta * cfg.bandwidthHz .* log2(1 + 10.^(cpeSinrDb / 10));
+
+channel.sinrCommDb = phoneSinrDb;
+channel.rPhoneBps = rPhone;
+channel.rCpeUplinkBps = rCpe;
+channel.plDb = plDb;
+end
+
+function trial = runTrial(cfg, seed, timeGrid, nominal, phoneUplinkBps, pdLookup)
+rng(seed, "twister");
+dt = timeGrid(2) - timeGrid(1);
+n = numel(timeGrid);
+
+monoSinr = nominal.monoSinrDb + ar1Process(n, 1.4, 1.0, dt);
+watchSinr = nominal.watchSinrDb + ar1Process(n, 2.0, 1.0, dt);
+cpeSinr = nominal.cpeSinrDb + ar1Process(n, 1.0, 2.0, dt);
+
+sinrGridDb = pdLookup.sinrPointsDb;
+monoPd = interpPdClamped(sinrGridDb, pdLookup.curves.monostatic, monoSinr);
+watchPd = interpPdClamped(sinrGridDb, pdLookup.curves.singleBistatic, watchSinr);
+cpePd = interpPdClamped(sinrGridDb, pdLookup.curves.cpeBistatic, cpeSinr);
+monoPd = min(max(monoPd, 0), 1);
+watchPd = min(max(watchPd, 0), 1);
+cpePd = min(max(cpePd, 0), 1);
+
+recruitmentSteps = max(1, round(0.4 / dt));
+releaseDwellSteps = max(1, round(1.0 / dt));
+active = false;
+lowCount = 0;
+pending = -1;
+releaseCount = 0;
+recruitedAt = NaN;
+warningFloor = 0.6;
+
+cpeActive = false(1, n);
+sensingNeedArr = false(1, n);
+commNeedArr = false(1, n);
+agentPd = zeros(1, n);
+monoWarning = false(1, n);
+watchWarning = false(1, n);
+agentWarning = false(1, n);
+agentRangeEstimate = NaN(1, n);
+
+for i = 1:n
+    targetBehind = nominal.targetXM(i) < 0;
+    if i == 1
+        approaching = targetBehind;
+    else
+        approaching = targetBehind && nominal.targetRangeM(i) < nominal.targetRangeM(i - 1);
+    end
+    sensingNeed = targetBehind && approaching && watchPd(i) < 0.8;
+    phoneRequired = cfg.videoTargetBps + cfg.videoMarginBps + 200e3 + 20e3;
+    commNeed = phoneUplinkBps(i) < phoneRequired;
+    sensingNeedArr(i) = sensingNeed;
+    commNeedArr(i) = commNeed;
+
+    cpeUp = timeGrid(i) < cfg.cpeFailStartS || timeGrid(i) >= cfg.cpeFailEndS;
+
+    if ~cpeUp
+        % CPE physically unavailable: the micro-agent reports the failure, so
+        % the agentic hub cannot recruit it and releases it if it was active,
+        % re-planning to phone-watch bistatic (watch-only) sensing.
+        active = false;
+        pending = -1;
+        lowCount = 0;
+        releaseCount = 0;
+    elseif ~active
+        releaseCount = 0;
+        if sensingNeed
+            lowCount = lowCount + 1;
+        else
+            lowCount = 0;
+        end
+        if lowCount >= 3 && pending < 0
+            pending = recruitmentSteps;
+        end
+        if pending >= 0
+            if sensingNeed
+                pending = pending - 1;
+                if pending < 0
+                    active = true;
+                    if isnan(recruitedAt), recruitedAt = timeGrid(i); end
+                end
+            else
+                pending = -1;
+            end
+        end
+    else
+        if ~sensingNeed
+            releaseCount = releaseCount + 1;
+            if releaseCount >= releaseDwellSteps
+                active = false;
+                releaseCount = 0;
+                lowCount = 0;
+                pending = -1;
+            end
+        else
+            releaseCount = 0;
+        end
+    end
+
+    cpeActive(i) = active;
+    if active
+        agentPd(i) = fusePd(cfg, watchPd(i), cpePd(i));
+    else
+        agentPd(i) = watchPd(i);
+    end
+
+    [monoWarning(i), ~] = warningTrial(cfg, monoPd(i), nominal.targetRangeM(i), targetBehind, warningFloor);
+    [watchWarning(i), ~] = warningTrial(cfg, watchPd(i), nominal.targetRangeM(i), targetBehind, warningFloor);
+    [agentWarning(i), agentRangeEstimate(i)] = warningTrial(cfg, agentPd(i), nominal.targetRangeM(i), targetBehind, warningFloor);
+end
+
+% --- Static-CPE baseline (pre-configured static delegation) -----------------
+% This policy is statically configured to delegate rear sensing to the
+% higher-gain CPE for the whole encounter (whenever the target is behind),
+% idling the watch receive chain, so its detection probability is the
+% reliability-limited CPE-only value. Because it has no closed loop, it keeps
+% no warm watch fallback: it is strictly better than watch-only from the start,
+% but goes blind during the CPE outage and only resumes the watch once the
+% target has passed. This differs from the agent, which keeps the watch and
+% fuses watch+CPE, so the agent is never worse than Static-CPE.
+failMask = timeGrid >= cfg.cpeFailStartS & timeGrid < cfg.cpeFailEndS;
+staticActive = false(1, n);
+staticPd = watchPd;
+staticWarning = false(1, n);
+for i = 1:n
+    targetBehind = nominal.targetXM(i) < 0;
+    if targetBehind
+        staticActive(i) = true;                 % CPE radio engaged (delegated)
+        if failMask(i)
+            staticPd(i) = 0;                    % CPE dead, watch idled -> blind
+        else
+            staticPd(i) = min(max(cfg.cpeTokenReliability * cpePd(i), 0), 1);
+        end
+    else
+        staticPd(i) = watchPd(i);              % target passed -> watch resumes
+    end
+    [staticWarning(i), ~] = warningTrial(cfg, staticPd(i), ...
+        nominal.targetRangeM(i), targetBehind, warningFloor);
+end
+
+idx = find(agentWarning, 1, "first");
+trial.staticPd = staticPd;
+trial.staticActive = staticActive;
+trial.staticWarning = staticWarning;
+trial.monoSinrDb = monoSinr;
+trial.watchSinrDb = watchSinr;
+trial.cpeSinrDb = cpeSinr;
+trial.monoPd = monoPd;
+trial.watchPd = watchPd;
+trial.cpePd = cpePd;
+trial.agentPd = agentPd;
+trial.cpeActive = cpeActive;
+trial.sensingNeed = sensingNeedArr;
+trial.commNeed = commNeedArr;
+trial.monoWarning = monoWarning;
+trial.watchWarning = watchWarning;
+trial.agentWarning = agentWarning;
+trial.agentRangeEstimate = agentRangeEstimate;
+trial.recruitedAtS = recruitedAt;
+trial.firstWarningTimeS = iff(isempty(idx), NaN, timeGrid(idx));
+trial.firstWarningRangeM = iff(isempty(idx), NaN, agentRangeEstimate(idx));
+end
+
+function [warning, estimate] = warningTrial(cfg, pd, trueRange, targetBehind, warningFloor)
+warning = false;
+estimate = NaN;
+if rand() >= pd
+    return;
+end
+sigmaM = 0.45 + 2.0 * (1 - pd);
+estimate = max(0.0, trueRange + sigmaM * randn());
+warning = targetBehind && estimate <= cfg.warningRangeM && pd >= warningFloor;
+end
+
+function metrics = computeSensingMetrics(cfg, trials, timeGrid, nominal)
+dt = timeGrid(2) - timeGrid(1);
+targetBehind = nominal.targetXM < 0;
+inZone = targetBehind & nominal.targetRangeM <= cfg.warningRangeM;
+enterIdx = find(inZone, 1, "first");
+tEnter = iff(isempty(enterIdx), NaN, timeGrid(enterIdx));
+outsideZone = nominal.targetRangeM > cfg.warningRangeM | nominal.targetXM >= 0;
+nOutside = max(1, sum(outsideZone));
+blockageMask = nominal.blockageLossDb > 0.1;
+
+N = numel(trials);
+successTimes = NaN(N, 1);
+successRanges = NaN(N, 1);
+falseAlarms = zeros(N, 1);
+s2Times = zeros(N, 1);
+s3Times = zeros(N, 1);
+switchCounts = zeros(N, 1);
+recruitedTimes = NaN(N, 1);
+watchStack = zeros(N, numel(timeGrid));
+agentStack = zeros(N, numel(timeGrid));
+
+for k = 1:N
+    warn = trials(k).agentWarning;
+    successIdx = find(warn & inZone, 1, "first");
+    if ~isempty(successIdx)
+        successTimes(k) = timeGrid(successIdx);
+        successRanges(k) = trials(k).agentRangeEstimate(successIdx);
+    end
+    falseAlarms(k) = sum(warn & outsideZone) / nOutside;
+    cpe = trials(k).cpeActive;
+    s2Times(k) = sum(~cpe) * dt;
+    s3Times(k) = sum(cpe) * dt;
+    switchCounts(k) = sum(abs(diff(double(cpe))) > 0);
+    recruitedTimes(k) = trials(k).recruitedAtS;
+    watchStack(k, :) = trials(k).watchPd;
+    agentStack(k, :) = trials(k).agentPd;
+end
+success = isfinite(successTimes);
+latencies = successTimes(success) - tEnter;
+meanWatch = mean(watchStack, 1);
+meanAgent = mean(agentStack, 1);
+
+metrics.warningSuccessRate = mean(success);
+metrics.missedWarningRate = 1 - metrics.warningSuccessRate;
+metrics.falseAlarmRate = mean(falseAlarms);
+metrics.meanWarningLatencyS = finiteMean(latencies);
+metrics.tTargetEntersWarningZoneS = tEnter;
+metrics.meanFirstWarningTimeS = finiteMean(successTimes);
+metrics.meanFirstWarningRangeM = finiteMean(successRanges);
+metrics.meanCpeRecruitmentTimeS = finiteMean(recruitedTimes);
+metrics.meanTimeInS2S = mean(s2Times);
+metrics.meanTimeInS3S = mean(s3Times);
+metrics.sensingModeSwitchCount = mean(switchCounts);
+metrics.meanWatchPdDuringBlockage = finiteMean(meanWatch(blockageMask));
+metrics.meanAgentPdDuringBlockage = finiteMean(meanAgent(blockageMask));
+end
+
+function metrics = computeCommMetrics(cfg, trials, timeGrid, nominal, commChannel)
+N = numel(trials);
+ct = repmat(computeCommTrial(cfg, trials(1), timeGrid, nominal, commChannel), N, 1);
+for k = 2:N
+    ct(k) = computeCommTrial(cfg, trials(k), timeGrid, nominal, commChannel);
+end
+videoRates = vertcatField(ct, "videoBitrate");
+stalls = vertcatField(ct, "stall");
+rAvail = vertcatField(ct, "rVideoAvail");
+rUplink = vertcatField(ct, "rUplinkTotal");
+
+metrics.meanRPhoneMbps = mean(commChannel.rPhoneBps) / 1e6;
+metrics.meanRCpeUplinkMbps = mean(commChannel.rCpeUplinkBps) / 1e6;
+metrics.meanRUplinkTotalMbps = mean(rUplink, "all") / 1e6;
+metrics.meanRVideoAvailMbps = mean(rAvail, "all") / 1e6;
+metrics.meanVideoBitrateMbps = mean(videoRates, "all") / 1e6;
+metrics.p5VideoBitrateMbps = prctile(videoRates(:), 5) / 1e6;
+metrics.stallTotalS = mean(sum(stalls, 2)) * (timeGrid(2) - timeGrid(1));
+metrics.sensingOverheadRatio = mean([ct.sensingBits] ./ [ct.totalBits]);
+metrics.meanTimeInC2S = mean([ct.timeC2S]);
+metrics.meanTimeInC3S = mean([ct.timeC3S]);
+metrics.meanTimeInC4S = mean([ct.timeC4S]);
+metrics.meanPhoneSensingEnergyJ = mean([ct.phoneEnergyJ]);
+metrics.meanPhoneCommEnergyJ = mean([ct.phoneCommEnergyJ]);
+metrics.meanWatchEnergyJ = mean([ct.watchEnergyJ]);
+metrics.meanCpeEnergyJ = mean([ct.cpeEnergyJ]);
+metrics.meanGlassEnergyJ = mean([ct.glassEnergyJ]);
+metrics.meanTotalEnergyJ = mean([ct.totalEnergyJ]);
+metrics.meanQoeComm = mean(arrayfun(@(x) mean(x.qoeComm), ct));
+metrics.qoeCommSeries = mean(vertcatField(ct, "qoeComm"), 1);
+metrics.commTrials = ct;
+end
+
+function out = computeCommTrial(cfg, trial, timeGrid, nominal, commChannel)
+dt = timeGrid(2) - timeGrid(1);
+n = numel(timeGrid);
+ladder = sort(cfg.videoLadderBps);
+buf = cfg.videoBuf0S;
+videoBitrate = zeros(1, n);
+rVideoAvail = zeros(1, n);
+rUplinkTotal = zeros(1, n);
+stall = false(1, n);
+commMode = zeros(1, n);
+phoneEnergy = 0;
+phoneCommEnergy = 0;
+watchEnergy = 0;
+cpeEnergy = 0;
+glassEnergy = 0;
+sensingBits = 0;
+totalBits = 0;
+warningIssued = false;
+timeC2 = 0;
+timeC3 = 0;
+timeC4 = 0;
+
+for i = 1:n
+    warningIssued = warningIssued || trial.agentWarning(i);
+    targetBehind = nominal.targetXM(i) < 0;
+    inWarningZone = targetBehind && nominal.targetRangeM(i) <= cfg.warningRangeM;
+    safetyPriority = trial.cpeActive(i) && inWarningZone;
+    rSensing = iff(trial.cpeActive(i), 500e3, 200e3);
+    rCoord = iff(trial.cpeActive(i), cfg.coordinationBps, 0);
+    rWarn = cfg.warningControlBps * iff(trial.agentWarning(i), 5.0, 1.0);
+    phoneRequired = cfg.videoTargetBps + cfg.videoMarginBps + rSensing + rCoord + rWarn;
+    phoneSufficient = commChannel.rPhoneBps(i) >= phoneRequired;
+    if safetyPriority
+        rUplink = commChannel.rPhoneBps(i) + commChannel.rCpeUplinkBps(i);
+        videoCap = iff(~warningIssued, cfg.videoCapWarningBps, cfg.videoCapSafetyBps);
+        commMode(i) = 4;
+        timeC4 = timeC4 + dt;
+    elseif trial.cpeActive(i) && ~phoneSufficient
+        rUplink = commChannel.rPhoneBps(i) + commChannel.rCpeUplinkBps(i);
+        videoCap = max(ladder);
+        commMode(i) = 3;
+        timeC3 = timeC3 + dt;
+    else
+        rUplink = commChannel.rPhoneBps(i);
+        videoCap = max(ladder);
+        commMode(i) = 2;
+        timeC2 = timeC2 + dt;
+    end
+    rUplinkTotal(i) = rUplink;
+    rVid = max(0, rUplink - rSensing - rCoord - rWarn);
+    rVideoAvail(i) = rVid;
+    level = 1;
+    for j = 1:numel(ladder)
+        if rVid >= ladder(j) + cfg.videoMarginBps && ladder(j) <= videoCap
+            level = j;
+        end
+    end
+    if buf < cfg.videoBufLowS
+        level = max(1, level - 1);
+    end
+    vrate = ladder(level);
+    videoBitrate(i) = vrate;
+    buf = min(cfg.videoBufCapS, max(0, buf + dt * (rVid / vrate - 1)));
+    stall(i) = buf <= 0;
+
+    phoneEnergy = phoneEnergy + cfg.pPhoneSensingTxW * dt;
+    phoneCommEnergy = phoneCommEnergy + (cfg.pPhoneIdleW + cfg.pPhoneLocalRxW + cfg.pPhoneCommTxW) * dt;
+    watchEnergy = watchEnergy + cfg.pWatchRxW * dt;
+    if trial.cpeActive(i)
+        cpeEnergy = cpeEnergy + cfg.pCpeRxW * dt;
+        if commMode(i) >= 3
+            cpeEnergy = cpeEnergy + cfg.pCpeCommTxW * dt;
+        end
+    end
+    glassEnergy = glassEnergy + glassPowerW(cfg, vrate) * dt;
+    sensingBits = sensingBits + rSensing * dt;
+    totalBits = totalBits + (vrate + rSensing) * dt;
+end
+
+maxBitrate = max(cfg.videoLadderBps);
+rateUtil = min(1, videoBitrate ./ cfg.videoTargetBps) + ...
+    cfg.qoeWOver * max(0, (videoBitrate - cfg.videoTargetBps) ./ (maxBitrate - cfg.videoTargetBps));
+phMax = cfg.pPhoneIdleW + cfg.pPhoneLocalRxW + cfg.pPhoneCommTxW;
+cpeTxPower = double(commMode >= 3) * cfg.pCpeCommTxW;
+energyPenalty = cfg.qoeWEnergy * (phMax + cpeTxPower) / phMax;
+modeDiff = [0, min(1, abs(diff(commMode)))];
+switchPenalty = cfg.qoeWSwitch * modeDiff;
+qoeComm = rateUtil - double(stall) - energyPenalty - switchPenalty;
+
+out.videoBitrate = videoBitrate;
+out.rVideoAvail = rVideoAvail;
+out.rUplinkTotal = rUplinkTotal;
+out.commMode = commMode;
+out.stall = stall;
+out.qoeComm = qoeComm;
+out.phoneEnergyJ = phoneEnergy;
+out.phoneCommEnergyJ = phoneCommEnergy;
+out.watchEnergyJ = watchEnergy;
+out.cpeEnergyJ = cpeEnergy;
+out.glassEnergyJ = glassEnergy;
+out.totalEnergyJ = phoneEnergy + phoneCommEnergy + watchEnergy + cpeEnergy;
+out.switchCount = sum(abs(diff(commMode)) > 0);
+out.sensingBits = sensingBits;
+out.totalBits = max(totalBits, 1);
+out.timeC2S = timeC2;
+out.timeC3S = timeC3;
+out.timeC4S = timeC4;
+end
+
+function qoe = computeQoe(cfg, sensing, comm)
+streamUtility = min(1, comm.meanVideoBitrateMbps * 1e6 / cfg.videoTargetBps) + ...
+    cfg.qoeWOver * max(0, (comm.meanVideoBitrateMbps * 1e6 - cfg.videoTargetBps) / ...
+    (max(cfg.videoLadderBps) - cfg.videoTargetBps));
+streamComponent = cfg.qoeWStream * (streamUtility - comm.stallTotalS / cfg.simulationTime);
+warningComponent = cfg.qoeWWarning * sensing.warningSuccessRate;
+latNorm = iff(isfinite(sensing.meanWarningLatencyS), min(1, sensing.meanWarningLatencyS / 2.0), 1.0);
+energyRef = 2.7 * cfg.simulationTime;
+energyNorm = min(1, comm.meanTotalEnergyJ / energyRef);
+switchNorm = min(1, sensing.sensingModeSwitchCount / 4.0);
+penalty = cfg.qoeWMissed * sensing.missedWarningRate + ...
+    cfg.qoeWFalse * sensing.falseAlarmRate + ...
+    cfg.qoeWLatency * latNorm + ...
+    cfg.qoeWToken * comm.sensingOverheadRatio + ...
+    cfg.qoeWEnergy * energyNorm + ...
+    cfg.qoeWSwitch * switchNorm;
+qoe.qoeJoint = streamComponent + warningComponent - penalty;
+qoe.qoeStreamComponent = streamComponent;
+qoe.qoeWarningComponent = warningComponent;
+qoe.qoePenaltyTotal = penalty;
+end
+
+function plotPdCurves(lookup, outputPath)
+fig = figure("Visible", "off", "Color", "w", "Position", [100 100 820 520]);
+plot(lookup.sinrPointsDb, lookup.curves.monostatic, "-o", "LineWidth", 1.5); hold on;
+plot(lookup.sinrPointsDb, lookup.curves.singleBistatic, "-s", "LineWidth", 1.5);
+plot(lookup.sinrPointsDb, lookup.curves.cpeBistatic, "-d", "LineWidth", 1.5);
+plot(lookup.sinrPointsDb, lookup.curves.multiRxFusion, "-x", "LineWidth", 1.5);
+yline(0.8, "--", "P_d=0.8");
+yline(0.6, ":", "warning floor");
+grid on; ylim([0 1.05]);
+xlabel("Mean effective SINR (dB)"); ylabel("Detection probability P_d");
+legend("phone mono", "watch", "CPE", "watch OR CPE", "Location", "southeast");
+title("Cached waveform-CFAR P_d(SINR) lookup");
+exportgraphics(fig, outputPath, "Resolution", 180);
+close(fig);
+end
+
+function [pol, inF, blockageIdx, failIdx] = buildPolicies(cfg, timeGrid, nominal, trials, commChannel)
+% Reconstruct the three comparison policies (No-Coop, Static-CPE, Proposed)
+% from the stored per-trial sensing arrays and the shared comm model. Returns
+% per-policy mean P_d, warning probability, total power, and joint QoE series,
+% plus the body-blockage and CPE-failure shading indices. Shared by the
+% 7-panel overview and the compact paper figure.
+N = numel(trials);
+n = numel(timeGrid);
+watchPd = zeros(N, n);
+cpePd = zeros(N, n);
+watchWarning = false(N, n);
+agentWarning = false(N, n);
+staticPd = zeros(N, n);
+staticActive = false(N, n);
+staticWarning = false(N, n);
+for k = 1:N
+    watchPd(k, :) = trials(k).watchPd;
+    cpePd(k, :) = trials(k).cpePd;
+    watchWarning(k, :) = trials(k).watchWarning;
+    agentWarning(k, :) = trials(k).agentWarning;
+    staticPd(k, :) = trials(k).staticPd;
+    staticActive(k, :) = trials(k).staticActive;
+    staticWarning(k, :) = trials(k).staticWarning;
+end
+
+inZone = nominal.targetRangeM <= cfg.warningRangeM & nominal.targetXM < 0;
+inF = double(inZone);
+blockageIdx = find(nominal.blockageLossDb > 0.1);
+failIdx = find(timeGrid >= cfg.cpeFailStartS & timeGrid < cfg.cpeFailEndS);
+% Palette matched to the Case 1 paper figure (fig4): baseline gray, a purple
+% non-proposed variant, and the proposed policy in the same solid blue/width.
+policyNames = ["No-Coop", "Static-CPE", "Proposed"];
+policyColors = [0.69 0.69 0.69; 0.58 0.40 0.74; 0.12 0.37 0.82];
+policyStyles = ["--", "-.", "-"];
+policyWidth = [1.2, 1.4, 2.2];
+phFixedPower = cfg.pPhoneIdleW + cfg.pPhoneLocalRxW + cfg.pPhoneCommTxW + ...
+    cfg.pPhoneSensingTxW + cfg.pWatchRxW;
+
+pol = struct();
+for pidx = 1:numel(policyNames)
+    pname = policyNames(pidx);
+    cpeOverride = false(N, n);
+    warnOverride = false(N, n);
+    effectivePd = zeros(N, n);
+
+    if pname == "No-Coop"
+        effectivePd = watchPd;
+        warnOverride = watchWarning;
+    elseif pname == "Static-CPE"
+        cpeOverride = staticActive;
+        effectivePd = staticPd;
+        warnOverride = staticWarning;
+    else
+        for k = 1:N
+            cpeOverride(k, :) = trials(k).cpeActive;
+            effectivePd(k, :) = trials(k).agentPd;
+        end
+        warnOverride = agentWarning;
+    end
+
+    ct = repmat(struct(), N, 1);
+    for k = 1:N
+        tcopy = trials(k);
+        tcopy.cpeActive = logical(cpeOverride(k, :));
+        tcopy.agentWarning = logical(warnOverride(k, :));
+        c = computeCommTrial(cfg, tcopy, timeGrid, nominal, commChannel);
+        if k == 1
+            ct = repmat(c, N, 1);
+        else
+            ct(k) = c;
+        end
+    end
+
+    commMode = vertcatField(ct, "commMode");
+    video = vertcatField(ct, "videoBitrate");
+    qoeComm = vertcatField(ct, "qoeComm");
+    meanCpeActive = mean(cpeOverride, 1);
+    meanCommMode = round(mean(commMode, 1));
+    meanVideo = mean(video, 1);
+    glassPower = arrayfun(@(v) glassPowerW(cfg, v), meanVideo);
+    cpePower = zeros(1, n);
+    for i = 1:n
+        if meanCpeActive(i) >= 0.5
+            cpePower(i) = cfg.pCpeRxW;
+            if meanCommMode(i) >= 3
+                cpePower(i) = cpePower(i) + cfg.pCpeCommTxW;
+            end
+        end
+    end
+
+    pol(pidx).name = pname;
+    pol(pidx).color = policyColors(pidx, :);
+    pol(pidx).style = policyStyles(pidx);
+    pol(pidx).width = policyWidth(pidx);
+    pol(pidx).meanPd = mean(effectivePd, 1);
+    pol(pidx).pdLo = prctile(effectivePd, 10, 1);
+    pol(pidx).pdHi = prctile(effectivePd, 90, 1);
+    pol(pidx).warnProb = mean(double(warnOverride), 1);
+    pol(pidx).meanVideo = meanVideo;
+    pol(pidx).meanCommMode = meanCommMode;
+    pol(pidx).meanSenseMode = 2 + double(meanCpeActive >= 0.5);
+    pol(pidx).meanQoeComm = mean(qoeComm, 1);
+    pol(pidx).totalPowerW = glassPower + phFixedPower + cpePower;
+    sensingQoe = cfg.qoeWWarning .* pol(pidx).warnProb .* inF - ...
+        cfg.qoeWMissed .* (1 - pol(pidx).warnProb) .* inF - ...
+        cfg.qoeWFalse .* pol(pidx).warnProb .* (1 - inF);
+    pol(pidx).jointQoe = pol(pidx).meanQoeComm + sensingQoe;
+
+    dt = timeGrid(2) - timeGrid(1);
+    inZoneRow = inF > 0;
+    pol(pidx).warningSuccessRate = mean(any(warnOverride & inZoneRow, 2));
+    % Warning coverage: fraction of in-zone time the system is reliably warning
+    % (warn prob >= 0.5). This, unlike ever-warned success, exposes the
+    % mid-hazard blind windows of No-Coop (blockage) and Static-CPE (failure).
+    if any(inZoneRow)
+        pol(pidx).warningCoverage = mean(pol(pidx).warnProb(inZoneRow) >= 0.5);
+    else
+        pol(pidx).warningCoverage = NaN;
+    end
+    pol(pidx).energyJ = sum(pol(pidx).totalPowerW) * dt;
+    pol(pidx).meanJointQoe = mean(pol(pidx).jointQoe);
+    pol(pidx).meanVideoMbps = mean(meanVideo) / 1e6;
+end
+end
+
+function pol = exportPaperFigure(cfg, timeGrid, nominal, trials, commChannel, outputPath)
+% Compact magazine figure: three stacked panels (detection probability,
+% warning probability, joint QoE) comparing No-Coop, Static-CPE, and Proposed
+% across the body-blockage (event 1) and CPE-failure (event 2) stressors.
+[pol, inF, blockageIdx, failIdx] = buildPolicies(cfg, timeGrid, nominal, trials, commChannel);
+lw = @(p) min(pol(p).width, 1.8);   % match fig4 combined line-width cap
+
+fig = figure("Visible", "off", "Color", "w", "Position", [100 100 760 720]);
+tiledlayout(3, 1, "Padding", "compact", "TileSpacing", "compact");
+
+% (a) Agent detection probability.
+ax = nexttile; hold(ax, "on");
+shadeBlockage(ax, timeGrid, blockageIdx, failIdx);
+for pidx = 1:numel(pol)
+    plot(timeGrid, pol(pidx).meanPd, "Color", pol(pidx).color, ...
+        "LineStyle", pol(pidx).style, "LineWidth", lw(pidx), ...
+        "DisplayName", pol(pidx).name);
+end
+yline(0.6, ":", "Warn floor", "Color", [0.45 0.45 0.45], "HandleVisibility", "off");
+ylabel("Detection prob. P_d"); ylim([-0.03 1.08]); grid on;
+legend("Location", "southwest", "NumColumns", 3, "FontSize", 8);
+title("(a) Effective detection probability");
+text(mean(timeGrid(blockageIdx)), 1.0, "body blockage", ...
+    "HorizontalAlignment", "center", "FontSize", 8, "Color", [0.55 0.35 0.0]);
+text(mean(timeGrid(failIdx)), 1.0, "CPE failure", ...
+    "HorizontalAlignment", "center", "FontSize", 8, "Color", [0.6 0.15 0.15]);
+
+% (b) Warning probability inside the rear warning zone.
+ax = nexttile; hold(ax, "on");
+fill([timeGrid, fliplr(timeGrid)], [zeros(1, numel(timeGrid)), fliplr(inF)], ...
+    [0.73 0.89 0.69], "FaceAlpha", 0.25, "EdgeColor", "none", ...
+    "DisplayName", "Rear warning zone");
+shadeBlockage(ax, timeGrid, blockageIdx, failIdx);
+for pidx = 1:numel(pol)
+    plot(timeGrid, pol(pidx).warnProb, "Color", pol(pidx).color, ...
+        "LineStyle", pol(pidx).style, "LineWidth", lw(pidx), ...
+        "DisplayName", pol(pidx).name);
+end
+ylabel("Warning probability"); ylim([-0.03 1.08]); grid on;
+legend("Location", "southwest", "NumColumns", 2, "FontSize", 8);
+title("(b) Rear-hazard warning probability");
+
+% (c) Per-step joint QoE.
+ax = nexttile; hold(ax, "on");
+shadeBlockage(ax, timeGrid, blockageIdx, failIdx);
+for pidx = 1:numel(pol)
+    plot(timeGrid, pol(pidx).jointQoe, "Color", pol(pidx).color, ...
+        "LineStyle", pol(pidx).style, "LineWidth", lw(pidx), ...
+        "DisplayName", pol(pidx).name);
+end
+yline(0, "--", "Color", [0.5 0.5 0.5], "HandleVisibility", "off");
+ylabel("Joint QoE"); xlabel("Time (s)"); grid on;
+legend("Location", "southwest", "NumColumns", 3, "FontSize", 8);
+title("(c) Per-step joint QoE");
+
+exportgraphics(fig, outputPath, "Resolution", 300);
+[d, b, ~] = fileparts(outputPath);
+exportgraphics(fig, fullfile(d, b + ".pdf"), "ContentType", "vector");
+close(fig);
+
+fprintf("\n=== Per-policy comparison (warning coverage / energy / mean QoE) ===\n");
+for pidx = 1:numel(pol)
+    fprintf("%-11s  cover=%.3f  E=%6.2f J  meanQoE=%+.3f  video=%.2f Mbps\n", ...
+        pol(pidx).name, pol(pidx).warningCoverage, pol(pidx).energyJ, ...
+        pol(pidx).meanJointQoe, pol(pidx).meanVideoMbps);
+end
+end
+
+function plotSystemOverview(cfg, timeGrid, nominal, trials, commChannel, outputPath)
+[pol, inF, blockageIdx, failIdx] = buildPolicies(cfg, timeGrid, nominal, trials, commChannel);
+n = numel(timeGrid);
+prop = pol(3);
+fig = figure("Visible", "off", "Color", "w", "Position", [100 100 1000 1900]);
+tiledlayout(7, 1, "Padding", "compact", "TileSpacing", "compact");
+
+ax = nexttile; hold(ax, "on");
+shadeBlockage(ax, timeGrid, blockageIdx, failIdx);
+for pidx = 1:numel(pol)
+    plot(timeGrid, pol(pidx).meanPd, "Color", pol(pidx).color, ...
+        "LineStyle", pol(pidx).style, "LineWidth", pol(pidx).width, ...
+        "DisplayName", pol(pidx).name);
+end
+fill([timeGrid, fliplr(timeGrid)], [prop.pdLo, fliplr(prop.pdHi)], ...
+    prop.color, "FaceAlpha", 0.12, "EdgeColor", "none", "HandleVisibility", "off");
+yline(0.6, ":", "Warn floor (P_d=0.6)", "Color", [0.45 0.45 0.45]);
+ylabel("P_d"); ylim([-0.03 1.08]); grid on;
+legend("Location", "southeast", "NumColumns", 2);
+title("(a) Detection Probability", "FontWeight", "bold");
+
+ax = nexttile; hold(ax, "on");
+shadeBlockage(ax, timeGrid, blockageIdx, failIdx);
+plot(timeGrid, nominal.monoSinrDb, "Color", [0.85 0.33 0.10], "LineWidth", 2.0, "DisplayName", "Mono (phone self)");
+plot(timeGrid, nominal.watchSinrDb, "Color", [0.75 0.10 0.10], "LineWidth", 2.0, "DisplayName", "Watch bistatic");
+plot(timeGrid, nominal.cpeSinrDb, "Color", [0.12 0.38 0.75], "LineWidth", 2.0, "DisplayName", "CPE bistatic");
+ylabel("SINR (dB)"); grid on; legend("Location", "southeast");
+title("(b) Nominal Sensing SINR", "FontWeight", "bold");
+
+ax = nexttile; hold(ax, "on");
+fill([timeGrid, fliplr(timeGrid)], [zeros(1, n), fliplr(inF)], ...
+    [0.73 0.89 0.69], "FaceAlpha", 0.28, "EdgeColor", "none", ...
+    "DisplayName", "Rear warning zone");
+shadeBlockage(ax, timeGrid, blockageIdx, failIdx);
+for pidx = 1:numel(pol)
+    plot(timeGrid, pol(pidx).warnProb, "Color", pol(pidx).color, ...
+        "LineStyle", pol(pidx).style, "LineWidth", pol(pidx).width, ...
+        "DisplayName", pol(pidx).name);
+end
+ylabel("Warning probability"); ylim([-0.03 1.08]); grid on;
+legend("Location", "southeast", "NumColumns", 2);
+title("(c) Warning Probability", "FontWeight", "bold");
+
+ax = nexttile; hold(ax, "on");
+shadeBlockage(ax, timeGrid, blockageIdx, failIdx);
+for pidx = 1:numel(pol)
+    plot(timeGrid, pol(pidx).jointQoe, "Color", pol(pidx).color, ...
+        "LineStyle", pol(pidx).style, "LineWidth", pol(pidx).width, ...
+        "DisplayName", pol(pidx).name);
+end
+yline(0, "--", "Color", [0.5 0.5 0.5]);
+ylabel("Joint QoE"); grid on; legend("Location", "southeast");
+title("(d) Per-Step Joint QoE", "FontWeight", "bold");
+
+ax = nexttile; hold(ax, "on");
+shadeBlockage(ax, timeGrid, blockageIdx, failIdx);
+for b = cfg.videoLadderBps / 1e6
+    yline(b, ":", "Color", [0.88 0.88 0.88], "HandleVisibility", "off");
+end
+for pidx = 1:numel(pol)
+    stairs(timeGrid, pol(pidx).meanVideo / 1e6, "Color", pol(pidx).color, ...
+        "LineStyle", pol(pidx).style, "LineWidth", pol(pidx).width, ...
+        "DisplayName", pol(pidx).name);
+end
+ylabel("Bitrate (Mbps)"); ylim([0 inf]); grid on; legend("Location", "northeast");
+title("(e) Video Bitrate", "FontWeight", "bold");
+
+ax = nexttile; hold(ax, "on");
+yyaxis left;
+stairs(timeGrid, prop.meanCommMode, "Color", [0.49 0.18 0.56], "LineWidth", 2.2, "DisplayName", "Comm mode");
+yticks([2 3 4]); yticklabels(["C2" "C3" "C4"]); ylim([1.5 4.8]); ylabel("Comm mode");
+yyaxis right;
+stairs(timeGrid, prop.meanSenseMode, "--", "Color", [0.55 0.32 0.12], "LineWidth", 2.0, "DisplayName", "Sensing mode");
+yticks([2 3]); yticklabels(["S2" "S3"]); ylim([1.5 3.8]); ylabel("Sensing mode");
+grid on; legend("Location", "northeast");
+title("(f) Comm and Sensing Mode (Proposed)", "FontWeight", "bold");
+
+ax = nexttile; hold(ax, "on");
+for pidx = 1:numel(pol)
+    plot(timeGrid, pol(pidx).totalPowerW, "Color", pol(pidx).color, ...
+        "LineStyle", pol(pidx).style, "LineWidth", pol(pidx).width, ...
+        "DisplayName", pol(pidx).name);
+end
+ylabel("Instantaneous power (W)"); xlabel("Time (s)"); ylim([0 inf]); grid on;
+legend("Location", "northwest");
+title("(g) Total Instantaneous Power", "FontWeight", "bold");
+
+exportgraphics(fig, outputPath, "Resolution", 200);
+close(fig);
+end
+
+function shadeBlockage(ax, timeGrid, blockageIdx, failIdx)
+if nargin < 4, failIdx = []; end
+yl = ylim(ax);
+if ~isempty(blockageIdx)
+    x1 = timeGrid(blockageIdx(1));
+    x2 = timeGrid(blockageIdx(end));
+    patch(ax, [x1 x2 x2 x1], [yl(1) yl(1) yl(2) yl(2)], ...
+        [0.94 0.76 0.42], "FaceAlpha", 0.22, "EdgeColor", "none", ...
+        "HandleVisibility", "off");
+end
+if ~isempty(failIdx)
+    x1 = timeGrid(failIdx(1));
+    x2 = timeGrid(failIdx(end));
+    patch(ax, [x1 x2 x2 x1], [yl(1) yl(1) yl(2) yl(2)], ...
+        [0.85 0.45 0.45], "FaceAlpha", 0.20, "EdgeColor", "none", ...
+        "HandleVisibility", "off");
+end
+if ~isempty(blockageIdx) || ~isempty(failIdx)
+    uistack(findobj(ax, "Type", "patch"), "bottom");
+end
+end
+
+function writeSummaryJson(outputPath, result)
+summary = struct();
+summary.createdAt = string(datetime("now", "Format", "yyyy-MM-dd HH:mm:ss"));
+summary.cfarCacheFile = string(result.lookup.cacheFile);
+summary.cfarCacheHit = result.lookup.cacheHit;
+summary.cfarSetupHash = result.lookup.setupHash;
+summary.sensing = result.sensingMetrics;
+summary.communication = rmfield(result.commMetrics, intersect(fieldnames(result.commMetrics), {'qoeCommSeries','commTrials'}));
+summary.qoe = result.qoeMetrics;
+fid = fopen(outputPath, "w");
+fprintf(fid, "%s", jsonencode(summary, "PrettyPrint", true));
+fclose(fid);
+end
+
+function printMetrics(sensing, comm, qoe, lookup)
+fprintf("\n=== MATLAB Scenario 2 Summary ===\n");
+fprintf("CFAR cache hit: %d\n", lookup.cacheHit);
+fprintf("CFAR hash: %s\n", lookup.setupHash);
+fprintf("Warning success rate: %.3f\n", sensing.warningSuccessRate);
+fprintf("Missed warning rate:  %.3f\n", sensing.missedWarningRate);
+fprintf("False alarm rate:     %.3f\n", sensing.falseAlarmRate);
+fprintf("Mean warning latency: %.3f s\n", sensing.meanWarningLatencyS);
+fprintf("Mean S2 / S3 time:    %.2f / %.2f s\n", sensing.meanTimeInS2S, sensing.meanTimeInS3S);
+fprintf("Watch/Agent P_d during blockage: %.3f / %.3f\n", ...
+    sensing.meanWatchPdDuringBlockage, sensing.meanAgentPdDuringBlockage);
+fprintf("Mean video bitrate:   %.2f Mbps\n", comm.meanVideoBitrateMbps);
+fprintf("P5 video bitrate:     %.2f Mbps\n", comm.p5VideoBitrateMbps);
+fprintf("Total energy:         %.3f J\n", comm.meanTotalEnergyJ);
+fprintf("Joint QoE:            %.4f\n", qoe.qoeJoint);
+end
+
+function [position, velocity] = targetState(cfg, t)
+start = [-24.0, 0.0, 1.1];
+stop = [-8.0, 0.0, 1.1];
+if t <= cfg.targetMotionTime
+    position = start + (stop - start) * (t / cfg.targetMotionTime);
+    velocity = (stop - start) / cfg.targetMotionTime;
+else
+    dtPass = t - cfg.targetMotionTime;
+    position = stop + [cfg.targetPassSpeed * dtPass, 0.0, 0.0];
+    velocity = [cfg.targetPassSpeed, 0.0, 0.0];
+end
+end
+
+function pos = watchPosition(t)
+visible = [0.0, 0.58, 1.15];
+blocked = [0.48, 0.0, 1.15];
+pos = visible + bodyBlockageFraction(t) * (blocked - visible);
+end
+
+function f = bodyBlockageFraction(t)
+if t < 2.7
+    f = 0.0;
+elseif t < 3.1
+    f = smoothstep((t - 2.7) / 0.4);
+elseif t < 5.9
+    f = 1.0;
+elseif t < 6.3
+    f = 1.0 - smoothstep((t - 5.9) / 0.4);
+else
+    f = 0.0;
+end
+end
+
+function y = smoothstep(x)
+x = min(max(x, 0.0), 1.0);
+y = x * x * (3 - 2 * x);
+end
+
+function tf = segmentIntersectsBody(startPos, stopPos)
+center = [0.0, 0.0, 1.2];
+direction = stopPos - startPos;
+denom = dot(direction, direction);
+if denom <= 1e-12
+    tf = false;
+    return;
+end
+u = min(max(dot(center - startPos, direction) / denom, 0.0), 1.0);
+closest = startPos + u * direction;
+tf = u > 1e-3 && u < 1 - 1e-3 && norm(closest(1:2)) <= 0.29 && ...
+    closest(3) >= 0.65 && closest(3) <= 1.75;
+end
+
+function p = bistaticTargetPower(cfg, txPosition, rx, targetPosition, attenuationDb)
+lambda = 3e8 / cfg.carrierHz;
+dTx = max(norm(targetPosition - txPosition), 1e-3);
+dRx = max(norm(targetPosition - rx.position), 1e-3);
+p = cfg.txPowerW * rx.gainLinear * lambda^2 * cfg.targetRcsM2 / ...
+    ((4 * pi)^3 * dTx^2 * dRx^2) * 10^(-attenuationDb / 10);
+end
+
+function p = directPathPower(cfg, txPosition, rx)
+lambda = 3e8 / cfg.carrierHz;
+d = max(norm(rx.position - txPosition), 0.05);
+p = cfg.txPowerW * rx.gainLinear * (lambda / (4 * pi * d))^2;
+end
+
+function p = effectiveDisturbancePower(cfg, txPosition, rx)
+thermalClutter = cfg.noisePowerW * (1 + cfg.clutterToNoise);
+if norm(rx.position - txPosition) < 1e-9
+    preAdcInterference = cfg.txPowerW * 10^(-cfg.siAnalogDb / 10);
+    residualInterference = cfg.txPowerW * ...
+        10^(-(cfg.siAnalogDb + cfg.siDigitalDb) / 10);
+else
+    directPower = directPathPower(cfg, txPosition, rx);
+    preAdcInterference = directPower * 10^(-cfg.dpAnalogDb / 10);
+    residualInterference = directPower * ...
+        10^(-(cfg.dpAnalogDb + cfg.dpDigitalDb) / 10);
+end
+adcNoise = adcQuantizationNoisePower(preAdcInterference + thermalClutter, ...
+    cfg.adcBits, cfg.adcBackoffDb);
+p = thermalClutter + residualInterference + adcNoise;
+end
+
+function p = adcQuantizationNoisePower(preAdcPowerW, bits, backoffDb)
+sqnrDb = 6.02 * bits + 1.76 - backoffDb;
+p = preAdcPowerW * 10^(-sqnrDb / 10);
+end
+
+function values = ar1Process(n, sigmaDb, tauS, dt)
+rho = exp(-dt / tauS);
+innovationSigma = sigmaDb * sqrt(max(1 - rho^2, 0));
+values = zeros(1, n);
+values(1) = sigmaDb * randn();
+for i = 2:n
+    values(i) = rho * values(i - 1) + innovationSigma * randn();
+end
+end
+
+function p = fusePd(cfg, watchPd, cpePd)
+watchEff = min(max(cfg.watchTokenReliability * watchPd, 0), 1);
+cpeEff = min(max(cfg.cpeTokenReliability * cpePd, 0), 1);
+p = min(cfg.fusionPdCeiling, 1 - (1 - watchEff) .* (1 - cpeEff));
+end
+
+function pl = umaPathLossDb(distanceM, carrierHz)
+d = max(distanceM, 1.0);
+fcGHz = carrierHz / 1e9;
+pl = 13.54 + 39.08 * log10(d) + 20 * log10(fcGHz);
+end
+
+function p = thermalNoisePowerW(bwHz, nfDb, tempK)
+k = 1.380649e-23;
+p = k * tempK * bwHz * 10^(nfDb / 10);
+end
+
+function w = dbmToW(dbm)
+w = 10.^((dbm - 30) / 10);
+end
+
+function dbm = wToDbm(w)
+dbm = 10 * log10(max(w, 1e-30) * 1e3);
+end
+
+function db = powerToDb(p)
+db = 10 * log10(max(p, 1e-30));
+end
+
+function p = glassPowerW(cfg, vrateBps)
+r = vrateBps / max(cfg.videoLadderBps);
+p = cfg.pGlassCamW + cfg.pGlassEnc0W + cfg.pGlassEnc1W * r^cfg.pGlassEncExp + ...
+    cfg.pGlassLocalTx0W + cfg.pGlassLocalTx1W * r;
+end
+
+function m = finiteMean(x)
+x = x(isfinite(x));
+if isempty(x)
+    m = NaN;
+else
+    m = mean(x);
+end
+end
+
+function pd = interpPdClamped(sinrGridDb, pdCurve, sinrDb)
+boundedSinrDb = min(max(sinrDb, sinrGridDb(1)), sinrGridDb(end));
+pd = interp1(sinrGridDb, pdCurve, boundedSinrDb, "linear");
+pd = min(max(pd, 0), 1);
+end
+
+function out = vertcatField(s, fieldName)
+out = vertcat(s.(fieldName));
+end
+
+function y = iff(cond, a, b)
+if cond
+    y = a;
+else
+    y = b;
+end
+end
+
+function x = exprndLocal(mu)
+x = -mu * log(max(rand(), realmin));
+end
+
+function hash = sha256Json(s)
+txt = jsonencode(orderfieldsRecursive(s));
+md = java.security.MessageDigest.getInstance("SHA-256");
+md.update(uint8(txt));
+bytes = typecast(md.digest(), "uint8");
+hash = lower(join(string(dec2hex(bytes, 2)), ""));
+hash = char(hash);
+end
+
+function s = orderfieldsRecursive(s)
+if isstruct(s)
+    s = orderfields(s);
+    names = fieldnames(s);
+    for i = 1:numel(names)
+        s.(names{i}) = orderfieldsRecursive(s.(names{i}));
+    end
+end
+end

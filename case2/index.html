@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agentic UE-CoMIMO · Blind-Spot Sensing Radar (SINR Edition)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;color:#eaf1f8;
+  font-family:system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:radial-gradient(1200px 700px at 50% -10%,#16243a,#070a10 70%)}
+#wrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+canvas{background:#0a1018;border-radius:12px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.06);cursor:crosshair}
+#ui{position:absolute;right:12px;top:12px;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;
+    max-width:380px;z-index:5}
+.btn{font-family:inherit;font-weight:600;font-size:12.5px;color:#dfe8f2;
+  background:rgba(22,28,40,.72);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:7px 13px;cursor:pointer;
+  transition:transform .06s,border-color .15s,background .15s}
+.btn:hover{border-color:rgba(127,208,255,.7);background:rgba(30,40,56,.82)}
+.btn:active{transform:translateY(1px)}
+.btn.alt{color:#bfe6ff}
+.btn.hot{background:rgba(232,120,120,.2);border-color:rgba(232,120,120,.75);color:#ffc9c2}
+#seedbox{font-family:inherit;font-weight:600;font-size:12.5px;width:56px;padding:6px 8px;color:#eaf1f8;
+  border:1px solid rgba(255,255,255,.16);border-radius:10px;background:rgba(10,14,20,.7)}
+#hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:5;
+  background:rgba(14,18,26,.8);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);
+  border-radius:999px;padding:8px 18px;font-size:13px;color:#bfe6ff;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+#intro{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px;
+  background:radial-gradient(900px 500px at 50% 30%,rgba(20,34,56,.86),rgba(6,9,14,.95))}
+#intro h1{font-size:27px;font-weight:800;letter-spacing:-.01em;line-height:1.18;
+  background:linear-gradient(90deg,#7fd0ff,#2f7fff);-webkit-background-clip:text;background-clip:text;color:transparent}
+#intro p{font-size:14.5px;color:#c4ccd6;line-height:1.65;max-width:740px}
+#intro p b{color:#eaf1f8}
+#intro .keys{font-size:13px;color:#7fd0ff;line-height:1.9}
+#intro .start{font-size:16px;font-weight:700;padding:12px 30px;color:#05121f;border:0;
+  background:linear-gradient(90deg,#7fd0ff,#2f7fff);border-radius:12px;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="cv" width="960" height="540"></canvas></div>
+
+<div id="ui">
+  <button class="btn" id="bPause" onclick="G.togglePause()">❚❚ PAUSE</button>
+  <button class="btn alt" id="bSpeed" onclick="G.toggleSpeed()">▶ x1</button>
+  <button class="btn" id="bBlock" onclick="G.toggleBlock()">🚫 FORCE BLOCKAGE</button>
+  <button class="btn" id="bFail" onclick="G.toggleFail()">⚡ FORCE CPE FAIL</button>
+  <button class="btn" onclick="G.restart()">↻ RESTART</button>
+  <input id="seedbox" value="31" title="random seed" onchange="G.restart()">
+</div>
+
+<div id="hint">Drag the timeline to scrub · FORCE buttons trigger events by hand · only the agent survives both</div>
+
+<div id="intro">
+  <h1>Agentic UE-CoMIMO<br>Wearable Blind-Spot Sensing Radar · SINR Edition</h1>
+  <p>A scooter creator is live-streaming when a <b>cyclist approaches from the rear blind spot</b>.
+     The phone probes; the <b>smartwatch</b> and scooter <b>CPE</b> receive the bistatic echo.
+     Each link's instantaneous <b>SINR</b> (radar equation, self-interference / direct-path residuals,
+     ADC quantization) is mapped through the paper's waveform-CFAR <b>P<sub>d</sub>(SINR)</b> lookup.</p>
+  <p>Three policies, same physics: <b>No-Coop</b> senses with the watch only.
+     <b>Static-CPE</b> is pre-configured cooperation: it delegates sensing to the higher-gain CPE from
+     the start and idles the watch, so it beats No-Coop immediately, but it never re-plans.
+     The <b>Proposed</b> agent recruits the CPE when watch confidence drops, fuses watch+CPE
+     while both live, and falls back to phone&ndash;watch sensing on a CPE failure report.
+     A <b>body blockage</b> blinds the watch (No-Coop fails); a <b>CPE failure</b> blinds the
+     delegated Static-CPE; only the agent keeps the warning through both.</p>
+  <p class="keys">DRAG timeline = scrub · SPACE = pause · F = fast · B = force blockage · C = force CPE fail · R = restart</p>
+  <button class="start" onclick="G.start()">► START</button>
+</div>
+
+<script>
+/* ============================================================
+   Faithful port of run_scenario2_sinr_pd_lookup.m.
+   - Analytic per-link SINR: bistatic radar equation, monostatic-SI /
+     bistatic direct-path residuals, ADC quantization noise (10-bit, 6 dB
+     back-off), thermal+clutter floor, AR(1) fading.
+   - Pd(SINR): monotonic waveform-CFAR lookup (2000 MC / 5000 H0 trials),
+     exported verbatim from the cached lookup.
+   - Policy fix vs the older range-based game:
+     (1) Static-CPE engages the CPE from t=0 (static delegation, watch
+         idled) so it outperforms watch-only from the very start;
+     (2) the joint QoE ports the MATLAB comm model (UMa uplink, video
+         ladder, energy penalty), so the agent is never spuriously
+         penalized below Static-CPE.
+   ============================================================ */
+const LUT = {
+  s:[-35,-33,-31,-29,-27,-25,-23,-21,-19,-17,-15,-13,-11,-9,-7,-5,-3,-1,1,3,5,7,9,11,13,15,17,19],
+  mono:[0,0,0,0,0,0,0,0.0005,0.001,0.0045,0.017,0.057,0.1185,0.236,0.358,0.485,0.627,0.7445,0.8155,0.8785,0.9195,0.955,0.971,0.984,0.984,0.994,0.996,0.996],
+  watch:[0,0,0,0,0,0,0,0,0.0005,0.0015,0.003,0.0105,0.0175,0.059,0.11,0.1965,0.319,0.4665,0.592,0.6965,0.7735,0.8705,0.92,0.946,0.961,0.977,0.99,0.99],
+  cpe:[0.0005,0.0005,0.0005,0.0015,0.008,0.024,0.058,0.1435,0.236,0.383,0.526,0.654,0.792,0.8545,0.9015,0.9415,0.962,0.974,0.982,0.9895,0.995,0.9955,0.9985,1,1,1,1,1]
+};
+const CFG = {
+  Tep:15, dt:0.1,
+  Ta:10, vpass:6,
+  Rwarn:18,
+  blkA:2.7, blkB:3.1, blkC:5.9, blkD:6.3,
+  failA:8.0, failB:10.5,
+  carrierHz:3.65e9, bwHz:1e8, txW:Math.pow(10,(23-30)/10),
+  nfDb:7, rcs:0.1, cnr:0.25, adcBits:10, adcBackoffDb:6,
+  blkLossDb:20, siA:65, siD:35, dpA:40, dpD:60,
+  rhoW:0.98, rhoC:0.85, pMax:0.97, warnFloor:0.6,
+  recruitTrig:0.8, recruitSetup:0.4, releaseDwell:1.0,
+  // comm / video / QoE (defaultConfig values)
+  gnbD:200, gnbH:25, gnbNf:7, eta:0.55, bodyLoss:3,
+  shStd:4, shCorrM:10, riderV:3, tvStd:1.5, tvTau:2,
+  cpeTxDbm:23, cpeGain:4, cpeShStd:3.5, cpeTvStd:1, cpeTvTau:3,
+  ladder:[3e6,8e6,15e6,25e6], vTgt:15e6, vMargin:3e6,
+  buf0:2.0, bufCap:2.5, bufLow:1.0,
+  warnBps:20e3, coordBps:300e3, capWarn:8e6, capSafe:15e6,
+  phMaxW:2.7, cpeTxW:2.0,
+  wWarn:2.0, wMiss:3.0, wFalse:0.5, wOver:0.1, wEnergy:0.5, wSwitch:0.2,
+  POL:[
+    {key:'nocoop', name:'No-Coop',    sub:'watch only',                    col:'#b0b0b0'},
+    {key:'static', name:'Static-CPE', sub:'CPE from start, watch idled',   col:'#9466bd'},
+    {key:'prop',   name:'Proposed',   sub:'agentic closed-loop',           col:'#2f7fff'}
+  ]
+};
+const clip=(z,lo,hi)=>Math.min(Math.max(z,lo),hi);
+const smoothstep=u=>{u=clip(u,0,1);return u*u*(3-2*u);};
+const log10=x=>Math.log10(x);
+function interpPd(curve,sinrDb){
+  const s=LUT.s;
+  if(sinrDb<=s[0])return curve[0];
+  if(sinrDb>=s[s.length-1])return curve[curve.length-1];
+  for(let i=0;i<s.length-1;i++){ if(sinrDb<=s[i+1]){
+    const t=(sinrDb-s[i])/(s[i+1]-s[i]); return curve[i]*(1-t)+curve[i+1]*t; } }
+  return curve[curve.length-1];
+}
+function makeRNG(seed){ let a=(seed>>>0)||1, spare=null;
+  const u=()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a);
+    t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+  const n=()=>{ if(spare!==null){const s=spare;spare=null;return s;}
+    const u1=Math.max(u(),1e-12),u2=u();
+    const r=Math.sqrt(-2*Math.log(u1)),th=2*Math.PI*u2;
+    spare=r*Math.sin(th); return r*Math.cos(th); };
+  return {u,n};
+}
+function makeAR1(rng,sigma,tau,dt){
+  const rho=Math.exp(-dt/tau), innov=sigma*Math.sqrt(Math.max(1-rho*rho,0));
+  return { x:NaN, step(){ this.x = isNaN(this.x)? sigma*rng.n() : rho*this.x+innov*rng.n(); return this.x; } };
+}
+/* normal CDF for the deterministic warning probability */
+function phi(x){ const t=1/(1+0.2316419*Math.abs(x));
+  const d=0.3989423*Math.exp(-x*x/2);
+  let p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));
+  return x>=0?1-p:p;
+}
+
+/* ---------------- link-budget physics (ports the .m functions) ------- */
+const PHY = (()=>{
+  const lam=3e8/CFG.carrierHz;
+  const kB=1.380649e-23;
+  const noiseW=kB*290*CFG.bwHz*Math.pow(10,CFG.nfDb/10);
+  const thCl=noiseW*(1+CFG.cnr);
+  const TX=[-0.1,0.58,1.2];
+  const WATCH_VIS=[0,0.58,1.15], WATCH_BLK=[0.48,0,1.15];
+  const CPE={p:[0.55,-0.62,0.75], g:4.0};
+  const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+  const norm3=a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);
+  const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const adcNoise=pre=>pre*Math.pow(10,-(6.02*CFG.adcBits+1.76-CFG.adcBackoffDb)/10);
+  const bistaticP=(rxP,g,tgt,attDb)=>{
+    const dTx=Math.max(norm3(sub(tgt,TX)),1e-3), dRx=Math.max(norm3(sub(tgt,rxP)),1e-3);
+    return CFG.txW*g*lam*lam*CFG.rcs/(Math.pow(4*Math.PI,3)*dTx*dTx*dRx*dRx)*Math.pow(10,-attDb/10);
+  };
+  const directP=(rxP,g)=>{ const d=Math.max(norm3(sub(rxP,TX)),0.05);
+    return CFG.txW*g*Math.pow(lam/(4*Math.PI*d),2); };
+  const segBody=(a,b)=>{ const C=[0,0,1.2], dir=sub(b,a), den=dot(dir,dir);
+    if(den<=1e-12)return false;
+    const u=clip(dot(sub(C,a),dir)/den,0,1);
+    const q=[a[0]+u*dir[0],a[1]+u*dir[1],a[2]+u*dir[2]];
+    return u>1e-3&&u<1-1e-3&&Math.hypot(q[0],q[1])<=0.29&&q[2]>=0.65&&q[2]<=1.75; };
+  // fixed noise floors
+  const monoRes=CFG.txW*Math.pow(10,-(CFG.siA+CFG.siD)/10);
+  const monoNoise=thCl+monoRes+adcNoise(CFG.txW*Math.pow(10,-CFG.siA/10)+thCl);
+  const cpeDir=directP(CPE.p,CPE.g);
+  const cpeNoise=thCl+cpeDir*Math.pow(10,-(CFG.dpA+CFG.dpD)/10)+adcNoise(cpeDir*Math.pow(10,-CFG.dpA/10)+thCl);
+  return {
+    target(t){ const p0=[-24,0,1.1], p1=[-8,0,1.1];
+      if(t<=CFG.Ta){ const u=t/CFG.Ta; return [p0[0]+(p1[0]-p0[0])*u,0,1.1]; }
+      return [p1[0]+CFG.vpass*(t-CFG.Ta),0,1.1]; },
+    // beta: effective blockage fraction (scripted x geometry, or forced)
+    sinr(t,beta,tgt){
+      const wp=[WATCH_VIS[0]+beta*(WATCH_BLK[0]-WATCH_VIS[0]),
+                WATCH_VIS[1]+beta*(WATCH_BLK[1]-WATCH_VIS[1]), 1.15];
+      const attDb=CFG.blkLossDb*beta;
+      const wDir=directP(wp,2.0);
+      const wNoise=thCl+wDir*Math.pow(10,-(CFG.dpA+CFG.dpD)/10)+adcNoise(wDir*Math.pow(10,-CFG.dpA/10)+thCl);
+      return {
+        mono:10*log10(bistaticP(TX,1.0,tgt,0)/monoNoise),
+        watch:10*log10(bistaticP(wp,2.0,tgt,attDb)/wNoise),
+        cpe:10*log10(bistaticP(CPE.p,CPE.g,tgt,0)/cpeNoise),
+        watchPos:wp
+      };
+    },
+    segBody, WATCH_VIS, WATCH_BLK, TX, CPE,
+    // comm channel constants
+    commPl:13.54+39.08*log10(Math.hypot(CFG.gnbD,CFG.gnbH))+20*log10(CFG.carrierHz/1e9),
+    noiseDbm:-174+10*log10(CFG.bwHz)+CFG.gnbNf
+  };
+})();
+
+/* ---------------- per-policy state ---------------- */
+function newPolicy(p){ return {
+  key:p.key, name:p.name, sub:p.sub, col:p.col,
+  active:false, lowCount:0, pending:-1, releaseCount:0,
+  pd:0, wp:0, warn:false, warned:false, cpeOn:false, mode:2, blind:false,
+  buf:CFG.buf0, lastMode:2,
+  qHist:[], inZoneT:0, coverT:0,
+  reset(){ this.active=false;this.lowCount=0;this.pending=-1;this.releaseCount=0;
+    this.pd=0;this.wp=0;this.warn=false;this.warned=false;this.cpeOn=false;this.mode=2;
+    this.blind=false;this.buf=CFG.buf0;this.lastMode=2;this.qHist=[];this.inZoneT=0;this.coverT=0; },
+  // 2-s moving average (movmean 20 steps), same display semantics as the
+  // Case 1 paper figure; a cumulative-since-0 average would drag the agent's
+  // 0.6-s recruitment lead-in through the whole episode.
+  qavg(){ if(!this.qHist.length)return 0;
+    let s=0; for(const v of this.qHist)s+=v; return s/this.qHist.length; }
+};}
+
+const G = {
+  cv:null, cx:null, t:0, paused:false, speed:1, started:false,
+  blkForce:false, failForce:false, dragging:false,
+  pols:[], last:0, rng:null, ar:{}, live:{},
+
+  init(){ this.cv=document.getElementById('cv'); this.cx=this.cv.getContext('2d');
+    this.pols=CFG.POL.map(newPolicy);
+    this.bindTimeline();
+    window.addEventListener('keydown',e=>this.key(e));
+    requestAnimationFrame(ts=>this.loop(ts)); },
+
+  seedVal(){ return (parseInt(document.getElementById('seedbox').value)||31)>>>0; },
+  resetSim(){ this.t=0; this.pols.forEach(p=>p.reset());
+    this.rng=makeRNG(this.seedVal());
+    const dt=CFG.dt;
+    this.ar={ mono:makeAR1(this.rng,1.4,1.0,dt), watch:makeAR1(this.rng,2.0,1.0,dt),
+      cpe:makeAR1(this.rng,1.0,2.0,dt),
+      phSh:makeAR1(this.rng,CFG.shStd,CFG.shCorrM/CFG.riderV,dt),
+      phTv:makeAR1(this.rng,CFG.tvStd,CFG.tvTau,dt),
+      cpeSh:makeAR1(this.rng,CFG.cpeShStd,CFG.shCorrM/CFG.riderV,dt),
+      cpeTv:makeAR1(this.rng,CFG.cpeTvStd,CFG.cpeTvTau,dt) };
+    this.live={}; },
+  start(){ document.getElementById('intro').style.display='none'; this.started=true; this.restart(); },
+  restart(){ this.blkForce=false; this.failForce=false; this.paused=false;
+    document.getElementById('bPause').textContent='❚❚ PAUSE';
+    this.resetSim(); this.syncBtns(); },
+  togglePause(){ this.paused=!this.paused;
+    document.getElementById('bPause').textContent=this.paused?'▶ PLAY':'❚❚ PAUSE'; },
+  toggleSpeed(){ this.speed=this.speed===1?4:1;
+    document.getElementById('bSpeed').textContent='▶ x'+this.speed; },
+  toggleBlock(){ this.blkForce=!this.blkForce; this.reintegrate(); this.syncBtns(); },
+  toggleFail(){ this.failForce=!this.failForce; this.reintegrate(); this.syncBtns(); },
+  syncBtns(){ document.getElementById('bBlock').classList.toggle('hot',this.blkForce);
+    document.getElementById('bFail').classList.toggle('hot',this.failForce); },
+  key(e){ if(!this.started)return; const k=e.key.toLowerCase();
+    if(k===' '){e.preventDefault();this.togglePause();} else if(k==='f')this.toggleSpeed();
+    else if(k==='b')this.toggleBlock(); else if(k==='c')this.toggleFail(); else if(k==='r')this.restart(); },
+
+  betaScript(t){ if(t<CFG.blkA||t>=CFG.blkD)return 0;
+    if(t<CFG.blkB)return smoothstep((t-CFG.blkA)/(CFG.blkB-CFG.blkA));
+    if(t<CFG.blkC)return 1;
+    return 1-smoothstep((t-CFG.blkC)/(CFG.blkD-CFG.blkC)); },
+  cpeUpAt(t){ if(this.failForce)return false;
+    return !(t>=CFG.failA&&t<CFG.failB); },
+
+  /* re-run from 0 to current t (manual event toggles change history) */
+  reintegrate(){ const tt=this.t; this.resetSim(); this.integrateTo(tt); },
+
+  integrateTo(tNew){
+    const dt=CFG.dt;
+    while(this.t<tNew-1e-9){
+      const t=this.t;
+      const tgt=PHY.target(t), r=Math.hypot(tgt[0],tgt[1]);
+      const behind=tgt[0]<0, inZone=behind&&r<=CFG.Rwarn;
+      const tgtN=PHY.target(t+dt);
+      const approaching=behind&&Math.hypot(tgtN[0],tgtN[1])<r;
+      // effective blockage: scripted fraction x LOS-geometry, or forced
+      let beta=this.betaScript(t);
+      const wpPos=[PHY.WATCH_VIS[0]+beta*(PHY.WATCH_BLK[0]-PHY.WATCH_VIS[0]),
+                   PHY.WATCH_VIS[1]+beta*(PHY.WATCH_BLK[1]-PHY.WATCH_VIS[1]),1.15];
+      beta*=PHY.segBody(wpPos,tgt)?1:0;
+      if(this.blkForce)beta=1;
+      const cpeUp=this.cpeUpAt(t);
+      // AR(1) draws in fixed order (determinism under scrubbing)
+      const fMono=this.ar.mono.step(), fWatch=this.ar.watch.step(), fCpe=this.ar.cpe.step();
+      const phSh=this.ar.phSh.step(), phTv=this.ar.phTv.step();
+      const cpeSh=this.ar.cpeSh.step(), cpeTv=this.ar.cpeTv.step();
+      const s=PHY.sinr(t,beta,tgt);
+      const watchSinr=s.watch+fWatch, cpeSinr=s.cpe+fCpe, monoSinr=s.mono+fMono;
+      const watchPd=clip(interpPd(LUT.watch,watchSinr),0,1);
+      const cpePd=clip(interpPd(LUT.cpe,cpeSinr),0,1);
+      // shared comm channel (UMa uplink, per makeCommChannel)
+      const phSinrDb=23-PHY.commPl-CFG.bodyLoss-phSh+phTv-PHY.noiseDbm;
+      const rPhone=CFG.eta*CFG.bwHz*Math.log2(1+Math.pow(10,phSinrDb/10));
+      const cpeSinrCommDb=CFG.cpeTxDbm+CFG.cpeGain-PHY.commPl-cpeSh+cpeTv-PHY.noiseDbm;
+      const rCpe=CFG.eta*CFG.bwHz*Math.log2(1+Math.pow(10,cpeSinrCommDb/10));
+      const env={t,r,behind,approaching,inZone,watchPd,cpePd,cpeUp,rPhone,rCpe};
+      for(const p of this.pols)this.stepPolicy(p,dt,env);
+      this.live={t:t+dt,r,beta,cpeUp,inZone,watchSinr,cpeSinr,monoSinr,watchPos:s.watchPos,tgt};
+      this.t=Math.round((this.t+dt)*10)/10;
+    }
+    this.t=tNew;
+  },
+
+  stepPolicy(p,dt,g){
+    /* --- sensing side --- */
+    let pd, cpeOn=false;
+    p.blind=false;
+    if(p.key==='nocoop'){
+      pd=g.watchPd;
+    }else if(p.key==='static'){
+      // FIX(1): static delegation from t=0 — while a rear target is being
+      // tracked, sensing is delegated to the higher-gain CPE (watch chain
+      // idled), reliability-limited. No closed loop: while the CPE is down
+      // the policy is blind (no warm watch fallback). Once the target has
+      // passed, the delegation episode ends and the watch resumes.
+      if(g.behind){
+        cpeOn=g.cpeUp;
+        if(g.cpeUp){ pd=clip(CFG.rhoC*g.cpePd,0,1); }
+        else{ pd=0; p.blind=true; }
+      }else{
+        pd=g.watchPd;
+      }
+    }else{
+      // proposed agent: recruit/release hysteresis + failure fallback
+      const need=g.behind&&g.approaching&&g.watchPd<CFG.recruitTrig;
+      if(!g.cpeUp){ p.active=false;p.pending=-1;p.lowCount=0;p.releaseCount=0; }
+      else if(!p.active){ p.releaseCount=0;
+        p.lowCount=need?p.lowCount+1:0;
+        if(p.lowCount>=3&&p.pending<0)p.pending=Math.round(CFG.recruitSetup/dt);
+        if(p.pending>=0){ if(need){ p.pending--; if(p.pending<0)p.active=true; }
+          else p.pending=-1; }
+      }else{ if(!need){ p.releaseCount++;
+          if(p.releaseCount>=Math.round(CFG.releaseDwell/dt)){p.active=false;p.releaseCount=0;p.lowCount=0;p.pending=-1;} }
+        else p.releaseCount=0; }
+      cpeOn=p.active;
+      pd=p.active
+        ?Math.min(CFG.pMax,1-(1-clip(CFG.rhoW*g.watchPd,0,1))*(1-clip(CFG.rhoC*g.cpePd,0,1)))
+        :g.watchPd;
+    }
+    pd=clip(pd,0,1);
+    /* deterministic warning probability (mean over warningTrial):
+       warn fires if behind, pd>=floor, and noisy range estimate <= Rwarn */
+    let wp=0;
+    if(g.behind&&pd>=CFG.warnFloor){
+      const sig=0.45+2*(1-pd);
+      wp=pd*phi((CFG.Rwarn-g.r)/sig);
+    }
+    const warn=wp>=0.5&&g.inZone;
+    if(warn)p.warned=true;
+
+    /* --- comm side (ports computeCommTrial) --- */
+    const rSense=cpeOn?500e3:200e3;
+    const rCoord=cpeOn?CFG.coordBps:0;
+    const rWarn=CFG.warnBps*(warn?5:1);
+    const phoneReq=CFG.vTgt+CFG.vMargin+rSense+rCoord+rWarn;
+    const phoneOk=g.rPhone>=phoneReq;
+    let rUp,videoCap,mode;
+    if(cpeOn&&g.inZone){ rUp=g.rPhone+g.rCpe; videoCap=p.warned?CFG.capSafe:CFG.capWarn; mode=4; }
+    else if(cpeOn&&!phoneOk){ rUp=g.rPhone+g.rCpe; videoCap=CFG.ladder[3]; mode=3; }
+    else { rUp=g.rPhone; videoCap=CFG.ladder[3]; mode=2; }
+    const rVid=Math.max(0,rUp-rSense-rCoord-rWarn);
+    let level=0;
+    for(let j=0;j<CFG.ladder.length;j++)
+      if(rVid>=CFG.ladder[j]+CFG.vMargin&&CFG.ladder[j]<=videoCap)level=j;
+    if(p.buf<CFG.bufLow)level=Math.max(0,level-1);
+    const vrate=CFG.ladder[level];
+    p.buf=clip(p.buf+dt*(rVid/vrate-1),0,CFG.bufCap);
+    const stall=p.buf<=0?1:0;
+    const rateUtil=Math.min(1,vrate/CFG.vTgt)+CFG.wOver*Math.max(0,(vrate-CFG.vTgt)/(CFG.ladder[3]-CFG.vTgt));
+    const energyPen=CFG.wEnergy*(CFG.phMaxW+(mode>=3?CFG.cpeTxW:0))/CFG.phMaxW;
+    const switchPen=CFG.wSwitch*(mode!==p.lastMode?1:0);
+    p.lastMode=mode;
+    const qoeComm=rateUtil-stall-energyPen-switchPen;
+
+    /* --- joint QoE (sensing weights exact) --- */
+    const inF=g.inZone?1:0;
+    const qoe=qoeComm+CFG.wWarn*wp*inF-CFG.wMiss*(1-wp)*inF-CFG.wFalse*wp*(1-inF);
+
+    p.pd=pd; p.wp=wp; p.warn=warn; p.cpeOn=cpeOn; p.mode=mode;
+    p.qHist.push(qoe); if(p.qHist.length>20)p.qHist.shift();
+    if(g.inZone){ p.inZoneT+=dt; if(wp>=0.5)p.coverT+=dt; }
+    p.qoe=qoe;
+  },
+
+  /* ---------- timeline scrubbing ---------- */
+  tlRect(){ return {x:24,y:476,w:912,h:34}; },
+  bindTimeline(){
+    const cv=this.cv;
+    const toT=e=>{ const rc=cv.getBoundingClientRect(); const sx=cv.width/rc.width;
+      const mx=(e.clientX-rc.left)*sx; const R=this.tlRect();
+      return clip((mx-R.x)/R.w,0,1)*CFG.Tep; };
+    cv.addEventListener('mousedown',e=>{ if(!this.started)return;
+      const rc=cv.getBoundingClientRect(); const sy=cv.height/rc.height;
+      const my=(e.clientY-rc.top)*sy; const R=this.tlRect();
+      if(my>=R.y-12&&my<=R.y+R.h+8){ this.dragging=true; this.scrub(toT(e)); } });
+    window.addEventListener('mousemove',e=>{ if(this.dragging)this.scrub(toT(e)); });
+    window.addEventListener('mouseup',()=>this.dragging=false);
+  },
+  scrub(tNew){ this.paused=true; document.getElementById('bPause').textContent='▶ PLAY';
+    this.resetSim(); this.integrateTo(clip(tNew,0,CFG.Tep)); },
+
+  loop(ts){ if(!this.last)this.last=ts; const rdt=(ts-this.last)/1000; this.last=ts;
+    if(this.started&&!this.paused&&!this.dragging){
+      let nt=Math.min(this.t+rdt*this.speed,CFG.Tep);
+      this.integrateTo(nt);
+      if(this.t>=CFG.Tep){ this.paused=true; document.getElementById('bPause').textContent='▶ PLAY'; }
+    }
+    if(this.started)this.render();
+    requestAnimationFrame(t=>this.loop(t)); },
+
+  /* ====================== RENDERING ====================== */
+  render(){
+    const c=this.cx,W=this.cv.width,H=this.cv.height;
+    c.clearRect(0,0,W,H);
+    const L=this.live.t!=null?this.live:{t:0,r:24,beta:0,cpeUp:true,inZone:false,
+      watchSinr:-35,cpeSinr:-35,tgt:PHY.target(0),watchPos:PHY.WATCH_VIS};
+    this.drawRadar(c,L);
+    this.drawCards(c);
+    this.drawTimeline(c,this.t);
+    this.drawTitle(c,L);
+  },
+
+  drawRadar(c,L){
+    const O={cx:300,cy:250,s:8.6};
+    c.save(); c.beginPath(); c.rect(16,16,560,440); c.clip();
+    c.fillStyle='#070d15'; c.fillRect(16,16,560,440);
+    for(const rr of [6,12,18,24]){ c.beginPath(); c.arc(O.cx,O.cy,rr*O.s,0,2*Math.PI);
+      c.strokeStyle=rr===18?'rgba(120,200,140,.5)':'rgba(120,150,190,.16)';
+      c.lineWidth=rr===18?1.6:1; c.setLineDash(rr===18?[5,5]:[]); c.stroke(); c.setLineDash([]);
+      c.fillStyle='rgba(150,175,205,.5)'; c.font='10px system-ui';
+      c.fillText(rr+' m',O.cx-12,O.cy-rr*O.s+12); }
+    c.beginPath(); c.moveTo(O.cx,O.cy); c.arc(O.cx,O.cy,CFG.Rwarn*O.s,Math.PI/2,3*Math.PI/2);
+    c.closePath(); c.fillStyle=L.inZone?'rgba(90,200,120,.12)':'rgba(90,140,190,.06)'; c.fill();
+    c.fillStyle='rgba(150,200,165,.6)'; c.font='11px system-ui';
+    c.fillText('REAR WARNING ZONE',O.cx-CFG.Rwarn*O.s+8,O.cy-CFG.Rwarn*O.s+18);
+    c.strokeStyle='rgba(127,208,255,.5)'; c.lineWidth=2; c.beginPath();
+    c.moveTo(O.cx+10,O.cy); c.lineTo(O.cx+46,O.cy); c.lineTo(O.cx+40,O.cy-5);
+    c.moveTo(O.cx+46,O.cy); c.lineTo(O.cx+40,O.cy+5); c.stroke();
+    c.fillStyle='rgba(127,208,255,.7)'; c.font='10px system-ui'; c.fillText('travel',O.cx+18,O.cy-8);
+
+    const ds=20, beta=L.beta;
+    const devs={
+      phone:[O.cx-0.1*ds,O.cy-0.58*ds],
+      watch:[O.cx+(L.watchPos?L.watchPos[0]:0)*ds,O.cy-(L.watchPos?L.watchPos[1]:0.58)*ds],
+      cpe:[O.cx+0.55*ds,O.cy+0.62*ds]
+    };
+    const T=[O.cx+L.tgt[0]*O.s,O.cy];
+    this.beam(c,devs.phone,T,'rgba(240,190,90,',0.55,2);
+    this.beam(c,T,devs.watch,'rgba(90,210,130,',beta>0.5?0.10:0.6,2);
+    this.beam(c,T,devs.cpe,'rgba(90,150,255,',L.cpeUp?0.6:0.08,2);
+    c.beginPath(); c.arc(O.cx,O.cy,7,0,2*Math.PI); c.fillStyle='#cfe3ff'; c.fill();
+    this.node(c,devs.phone,'#f0be5a','TX',true);
+    this.node(c,devs.watch,beta>0.5?'#5a6b5f':'#5ad282','W',beta<0.5);
+    this.node(c,devs.cpe,L.cpeUp?'#5a96ff':'#6b5a5a','CPE',L.cpeUp);
+    // live SINR readouts (the point of the SINR edition)
+    c.font='10px system-ui';
+    c.fillStyle=beta>0.5?'#8ba392':'#9fe8bb';
+    c.fillText((L.watchSinr>=0?'+':'')+L.watchSinr.toFixed(1)+' dB',devs.watch[0]+10,devs.watch[1]+4);
+    c.fillStyle=L.cpeUp?'#9fc4ff':'#8b8b9d';
+    c.fillText(L.cpeUp?((L.cpeSinr>=0?'+':'')+L.cpeSinr.toFixed(1)+' dB'):'offline',devs.cpe[0]+12,devs.cpe[1]+4);
+    if(beta>0.5){ c.fillStyle='#ffb3a3'; c.fillText('blocked',devs.watch[0]-16,devs.watch[1]-12); }
+    const inZ=L.inZone;
+    c.beginPath(); c.arc(T[0],T[1],8,0,2*Math.PI);
+    c.fillStyle=inZ?'#ff6a6a':(L.tgt[0]<0?'#ffb86a':'#8fb0c8'); c.fill();
+    c.strokeStyle='rgba(0,0,0,.4)'; c.lineWidth=1.5; c.stroke();
+    c.fillStyle='#eaf1f8'; c.font='11px system-ui'; c.fillText('🚲 cyclist',T[0]-18,T[1]-13);
+    c.fillStyle='rgba(200,215,230,.7)'; c.font='10px system-ui';
+    c.fillText('range '+L.r.toFixed(1)+' m',T[0]-22,T[1]+22);
+    c.restore();
+    c.strokeStyle='rgba(255,255,255,.08)'; c.lineWidth=1; c.strokeRect(16,16,560,440);
+  },
+  beam(c,a,b,rgb,al,w){ c.strokeStyle=rgb+al+')'; c.lineWidth=w; c.beginPath();
+    c.moveTo(a[0],a[1]); c.lineTo(b[0],b[1]); c.stroke(); },
+  node(c,p,col,lab,alive){ c.beginPath(); c.arc(p[0],p[1],6,0,2*Math.PI);
+    c.fillStyle=col; c.fill(); c.strokeStyle='rgba(0,0,0,.4)'; c.lineWidth=1; c.stroke();
+    c.fillStyle=alive?'#eaf1f8':'#9aa6b2'; c.font='bold 9px system-ui'; c.textAlign='center';
+    c.fillText(lab,p[0],p[1]-9); c.textAlign='left'; },
+
+  drawCards(c){
+    const X=592,W=352,top=92,h=116,gap=10;
+    this.pols.forEach((p,i)=>{ const y=top+i*(h+gap);
+      c.fillStyle='rgba(16,22,32,.92)'; this.rrect(c,X,y,W,h,12); c.fill();
+      c.strokeStyle=p.warn?'rgba(255,120,120,.8)':'rgba(255,255,255,.10)'; c.lineWidth=p.warn?2:1;
+      this.rrect(c,X,y,W,h,12); c.stroke();
+      c.fillStyle=p.col; this.rrect(c,X+14,y+16,16,16,4); c.fill();
+      c.fillStyle='#eaf1f8'; c.font='bold 16px system-ui'; c.fillText(p.name,X+40,y+29);
+      c.fillStyle='rgba(180,195,210,.7)'; c.font='11px system-ui'; c.fillText(p.sub,X+40,y+44);
+      // comm/sensing mode chip ("—" = blind: delegated CPE dead, watch idled)
+      const sLab=p.blind?'—':(p.cpeOn?'S3':'S2');
+      c.fillStyle=p.blind?'rgba(240,140,140,.9)':'rgba(150,175,205,.8)';
+      c.font='bold 10px system-ui'; c.textAlign='right';
+      c.fillText('C'+p.mode+' · '+sLab,X+W-44,y+44); c.textAlign='left';
+      const wOn=p.warn; c.beginPath(); c.arc(X+W-26,y+24,9,0,2*Math.PI);
+      c.fillStyle=wOn?'#ff5a5a':'rgba(120,130,140,.35)'; c.fill();
+      if(wOn){ c.fillStyle='#ffd0c8'; c.font='bold 10px system-ui'; c.textAlign='right';
+        c.fillText('WARN',X+W-40,y+28); c.textAlign='left'; }
+      const cov=p.inZoneT>0?p.coverT/p.inZoneT:0;
+      this.bar(c,X+16,y+58,W-32,'Detection P_d',p.pd,p.col,p.pd.toFixed(2));
+      this.bar(c,X+16,y+80,W-32,'Warning coverage',cov,'#6ad28a',(cov*100).toFixed(0)+'%');
+      const q=p.qavg(), qn=clip((q+1.5)/4,0,1);
+      this.bar(c,X+16,y+102,W-32,'Joint QoE (2s avg)',qn,'#7fd0ff',(q>=0?'+':'')+q.toFixed(2));
+    });
+  },
+  bar(c,x,y,w,lab,frac,col,val){
+    c.fillStyle='rgba(190,205,220,.75)'; c.font='11px system-ui'; c.fillText(lab,x,y-3);
+    c.fillStyle='rgba(255,255,255,.08)'; this.rrect(c,x,y,w,9,4); c.fill();
+    c.fillStyle=col; this.rrect(c,x,y,Math.max(2,w*clip(frac,0,1)),9,4); c.fill();
+    c.fillStyle='#eaf1f8'; c.font='bold 11px system-ui'; c.textAlign='right';
+    c.fillText(val,x+w,y-3); c.textAlign='left';
+  },
+
+  drawTimeline(c,t){
+    const R=this.tlRect();
+    c.fillStyle='rgba(16,22,32,.9)'; this.rrect(c,R.x,R.y,R.w,R.h,8); c.fill();
+    c.strokeStyle='rgba(255,255,255,.1)'; this.rrect(c,R.x,R.y,R.w,R.h,8); c.stroke();
+    const X=tt=>R.x+R.w*(tt/CFG.Tep);
+    const blk=[X(CFG.blkA),X(CFG.blkD)],fail=[X(CFG.failA),X(CFG.failB)];
+    c.fillStyle='rgba(232,178,90,.30)'; c.fillRect(blk[0],R.y+4,blk[1]-blk[0],R.h-8);
+    c.fillStyle='rgba(220,110,110,.30)'; c.fillRect(fail[0],R.y+4,fail[1]-fail[0],R.h-8);
+    c.fillStyle='rgba(232,200,150,.9)'; c.font='10px system-ui'; c.fillText('body blockage',blk[0]+4,R.y+14);
+    c.fillStyle='rgba(240,170,170,.95)'; c.fillText('CPE failure',fail[0]+4,R.y+14);
+    c.strokeStyle='#7fd0ff'; c.lineWidth=2; c.beginPath(); c.moveTo(X(t),R.y); c.lineTo(X(t),R.y+R.h); c.stroke();
+    c.fillStyle='#7fd0ff'; c.beginPath(); c.arc(X(t),R.y+R.h,4,0,2*Math.PI); c.fill();
+    c.fillStyle='rgba(200,215,230,.8)'; c.font='11px system-ui';
+    c.fillText('t = '+t.toFixed(1)+' s',R.x+R.w-70,R.y+24);
+    c.fillStyle='rgba(150,170,190,.7)'; c.fillText('drag to scrub',R.x+8,R.y+28);
+  },
+
+  drawTitle(c,L){
+    c.fillStyle='#eaf1f8'; c.font='bold 14px system-ui';
+    c.fillText('Wearable Blind-Spot Sensing · SINR → P_d radar',24,34);
+    let cx=24,cy=46;
+    const chip=(txt,on,col)=>{ c.font='11px system-ui'; const w=c.measureText(txt).width+18;
+      c.fillStyle=on?col:'rgba(40,48,60,.6)'; this.rrect(c,cx,cy-12,w,18,9); c.fill();
+      c.fillStyle=on?'#0a0e14':'rgba(170,185,200,.7)'; c.fillText(txt,cx+9,cy+1); cx+=w+8; };
+    chip('BODY BLOCKAGE',L.beta>0.5,'rgba(232,178,90,.95)');
+    chip('CPE OFFLINE',!L.cpeUp,'rgba(232,120,120,.95)');
+    chip('TARGET IN REAR ZONE',!!L.inZone,'rgba(120,210,150,.95)');
+  },
+
+  rrect(c,x,y,w,h,r){ r=Math.min(r,Math.abs(w)/2,Math.abs(h)/2); c.beginPath();
+    c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r);
+    c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+};
+function fit(){ const cv=document.getElementById('cv');
+  const s=Math.min(innerWidth/(960+24),innerHeight/(540+24));
+  cv.style.width=(960*s)+'px'; cv.style.height=(540*s)+'px'; }
+addEventListener('resize',fit); fit();
+G.init();
+</script>
+</body>
+</html>

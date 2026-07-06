@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic UE-CoMIMO for 6G — Supplementary Material</title>
+<meta name="description" content="Interactive demos and MATLAB reference code for the paper 'Agentic UE-CoMIMO for 6G: From Virtual Antenna Augmentation to AI-Native Virtualized Terminals'.">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0d1117; color: #e6edf3;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+  header { padding: 56px 0 32px; border-bottom: 1px solid #21262d; background: linear-gradient(180deg, #101a2b 0%, #0d1117 100%); }
+  h1 { font-size: 1.7rem; margin: 0 0 10px; line-height: 1.3; }
+  .sub { color: #9198a1; font-size: 1rem; margin: 0 0 6px; }
+  .badge { display: inline-block; margin-top: 14px; padding: 4px 12px; border: 1px solid #30363d; border-radius: 999px; color: #7ee0a3; font-size: .82rem; }
+  .doclinks { margin-top: 20px; }
+  a.doc {
+    display: inline-block; margin: 4px 12px 4px 0; padding: 10px 18px;
+    border-radius: 8px; text-decoration: none; font-size: .92rem; font-weight: 600;
+    background: #238636; color: #fff;
+  }
+  a.doc:hover { background: #2ea043; }
+  a.doc .meta { font-weight: 400; opacity: .8; font-size: .85em; }
+  section { padding: 36px 0 8px; }
+  h2 { font-size: 1.25rem; margin: 0 0 8px; }
+  .case { border: 1px solid #21262d; border-radius: 12px; padding: 24px; margin: 20px 0 28px; background: #11161d; }
+  .case p { color: #b7bfc8; font-size: .95rem; margin: 8px 0 16px; }
+  .links a {
+    display: inline-block; margin: 4px 10px 4px 0; padding: 9px 16px;
+    border-radius: 8px; text-decoration: none; font-size: .9rem;
+  }
+  a.play { background: #1f6feb; color: #fff; font-weight: 600; }
+  a.play:hover { background: #388bfd; }
+  a.code { border: 1px solid #30363d; color: #58a6ff; }
+  a.code:hover { border-color: #58a6ff; }
+  figure { margin: 20px 0 4px; }
+  figure img { width: 100%; border-radius: 8px; border: 1px solid #21262d; background: #fff; }
+  figcaption { color: #8b949e; font-size: .82rem; margin-top: 8px; }
+  footer { border-top: 1px solid #21262d; margin-top: 40px; padding: 24px 0 40px; color: #8b949e; font-size: .85rem; }
+  footer a { color: #58a6ff; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>Agentic UE-CoMIMO for 6G:<br>From Virtual Antenna Augmentation to AI-Native Virtualized Terminals</h1>
+    <p class="sub">Supplementary material — interactive scenario demos and MATLAB reference code for the two representative use cases.</p>
+    <span class="badge">Manuscript submitted to IEEE Communications Magazine</span>
+    <div class="doclinks">
+      <a class="doc" href="UE_CoMIMO_2_0_Supplement.pdf" target="_blank" rel="noopener">&#128196; Supplementary Material (PDF) <span class="meta">— full system models &amp; parameters</span></a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section>
+  <h2>Case 1 — Creator-Centric Live Streaming with CPE Assistance</h2>
+  <div class="case">
+    <p>
+      A creator wearing AI glasses live-streams first-person video while walking from an outdoor
+      street into a venue and then dwelling indoors for a long session. The glasses offload video
+      over 5&nbsp;GHz Wi-Fi to a smartphone hub agent that orchestrates five uplink modes: direct
+      glass cellular (fallback only), smartphone relay on 3.5&nbsp;GHz or 700&nbsp;MHz, packet-split
+      cooperation with a nearby shared CPE, and full delegation to the CPE. The agent optimizes the
+      creator's QoE — stall avoidance, glass temperature, and glass/phone battery — rather than peak
+      throughput. The interactive game and the MATLAB batch script implement the identical control logic.
+    </p>
+    <div class="links">
+      <a class="play" href="case1/">&#9654;&#65038; Play the interactive scenario</a>
+      <a class="code" href="matlab/case1.html">View MATLAB source</a>
+      <a class="code" href="matlab/scene_aware_ue_comimo_uplink.m" download>Download .m</a>
+    </div>
+    <figure>
+      <img src="figs/case1_results.png" alt="Case 1 MATLAB results: delivered bitrate and smoothed QoE across the O2I transition and indoor dwell for baselines, ablation, and the proposed agentic policy." loading="lazy">
+      <figcaption>MATLAB batch results: delivered video bitrate (top) and smoothed QoE (bottom) across the outdoor-to-indoor transition and indoor dwell, for fixed and reactive baselines, the no-governor ablation, and the proposed agentic policy.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <h2>Case 2 — Wearable-Collaborative Blind-Spot Sensing and Warning</h2>
+  <div class="case">
+    <p>
+      A creator rides an electric scooter while live-streaming. The smartphone acts as hub agent
+      and sensing transmitter, the smartwatch as the default bistatic receiver, and a scooter-mounted
+      CPE as an auxiliary receiver. A cyclist approaches from the rear blind spot and triggers two
+      successive disturbances: a body-blockage interval that blinds the watch echo path, and a
+      transient loss of the scooter CPE. Three policies are compared — watch-only (No-Coop),
+      static CPE recruitment (Static-CPE), and the proposed agentic policy that recruits the CPE
+      on confidence drop and re-plans to phone–watch bistatic sensing on the failure report.
+      Detection uses a waveform-level CFAR model via a cached P<sub>d</sub>(SINR) lookup.
+    </p>
+    <div class="links">
+      <a class="play" href="case2/">&#9654;&#65038; Play the interactive scenario</a>
+      <a class="code" href="matlab/case2.html">View MATLAB source</a>
+      <a class="code" href="matlab/run_scenario2_sinr_pd_lookup.m" download>Download .m</a>
+    </div>
+    <figure>
+      <img src="figs/case2_results.png" alt="Case 2 MATLAB results: effective detection probability, rear-hazard warning probability, and per-step joint QoE for No-Coop, Static-CPE, and the agentic policy across the blockage and CPE-failure events." loading="lazy">
+      <figcaption>MATLAB batch results: (a) effective detection probability, (b) rear-hazard warning probability inside the warning zone, and (c) per-step joint QoE for the No-Coop and Static-CPE baselines and the proposed agentic policy, across the body-blockage and CPE-failure events.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<footer>
+  <p>
+    The complete system model — geometry, channel, device, link-budget, waveform-level CFAR detection,
+    and control logic, with all parameters and their provenance — is detailed in the
+    <a href="UE_CoMIMO_2_0_Supplement.pdf" target="_blank" rel="noopener">supplementary document (PDF)</a>.
+    The interactive demos above run entirely in the browser (no installation);
+    the MATLAB scripts require base MATLAB only (R2018b+).
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
